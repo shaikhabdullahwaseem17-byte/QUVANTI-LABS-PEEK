@@ -1,0 +1,225 @@
+"use client";
+
+import {
+  Shield,
+  CheckCircle,
+  Database,
+  TrendingUp,
+  Award,
+  Lock,
+} from "lucide-react";
+
+export default function TrustReport() {
+  return (
+    <div
+      className="rounded-2xl p-8 relative overflow-hidden"
+      style={{
+        background: "rgba(2,2,2,0.30)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        border: "1px solid rgba(255,255,255,0.025)",
+      }}
+    >
+      <div className="relative">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <Shield color="#ffffff" size={28} />
+              <h2
+                className="text-[1.8rem] font-black tracking-[-0.04em]"
+                style={{ color: "#ffffff" }}
+              >
+                Platform Integrity Report
+              </h2>
+            </div>
+            <p
+              className="text-[14px]"
+              style={{ color: "rgba(255,255,255,0.38)" }}
+            >
+              Real data. Real math. No hallucinations.
+            </p>
+          </div>
+          <div
+            className="px-4 py-3 rounded-xl text-center"
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            <p
+              className="text-[10px] font-medium tracking-[0.15em] uppercase mb-1"
+              style={{ color: "rgba(255,255,255,0.3)" }}
+            >
+              VERIFIED
+            </p>
+            <p className="text-[1.6rem] font-black text-white">100%</p>
+          </div>
+        </div>
+
+        {/* Trust Metrics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+          {[
+            {
+              icon: Database,
+              title: "Real Market Data",
+              items: [
+                "CoinGecko API Integration",
+                "Alternative.me Fear & Greed Index",
+                "Point-in-Time Historical Data",
+              ],
+              note: "Every price is traceable to source. Zero simulated data.",
+            },
+            {
+              icon: TrendingUp,
+              title: "Mathematical Engine",
+              items: [
+                "Sharpe Ratio (Wilder 1966)",
+                "Sortino Ratio (Frank Sortino)",
+                "RSI, MACD, Bollinger Bands",
+              ],
+              note: "Industry-standard formulas. Not AI approximations.",
+            },
+            {
+              icon: Award,
+              title: "Backtesting Integrity",
+              items: [
+                "NO Look-Ahead Bias",
+                "Realistic Slippage & Fees",
+                "Complete Audit Trail",
+              ],
+              note: "Every trade timestamped. Full transparency.",
+            },
+          ].map(({ icon: Icon, title, items, note }) => (
+            <div
+              key={title}
+              className="rounded-xl p-5"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <Icon color="rgba(255,255,255,0.6)" size={20} />
+                <h3
+                  className="font-medium text-[15px] tracking-[-0.02em]"
+                  style={{ color: "#ffffff" }}
+                >
+                  {title}
+                </h3>
+              </div>
+              <div className="space-y-2 mb-3">
+                {items.map((item) => (
+                  <div key={item} className="flex items-center gap-2">
+                    <CheckCircle size={13} color="rgba(255,255,255,0.4)" />
+                    <p
+                      className="text-[13px]"
+                      style={{ color: "rgba(255,255,255,0.5)" }}
+                    >
+                      {item}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p
+                className="text-[11px] italic"
+                style={{ color: "rgba(255,255,255,0.2)" }}
+              >
+                {note}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* What Sets Us Apart */}
+        <div
+          className="rounded-xl p-6"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <h3
+            className="text-[17px] font-black tracking-[-0.04em] mb-5 flex items-center gap-2"
+            style={{ color: "#ffffff" }}
+          >
+            <Lock color="rgba(255,255,255,0.5)" size={17} />
+            What Sets Quvanti Apart
+          </h3>
+          <div className="grid md:grid-cols-2 gap-4 text-[13px]">
+            {[
+              {
+                label: "Real Indicator Calculations",
+                desc: "Step-by-step mathematical formulas, not LLM text generation",
+              },
+              {
+                label: "Zero Hallucinations",
+                desc: "No AI-invented numbers. Every metric mathematically derived",
+              },
+              {
+                label: "Institutional-Grade Analytics",
+                desc: "Hurst Exponent, Market Regime Detection, Volatility Analysis",
+              },
+              {
+                label: "Executable Code Export",
+                desc: "Python & Pine Script — real, runnable trading bots",
+              },
+            ].map(({ label, desc }) => (
+              <div key={label}>
+                <p
+                  className="font-medium mb-1"
+                  style={{ color: "rgba(255,255,255,0.7)" }}
+                >
+                  ✓ {label}
+                </p>
+                <p style={{ color: "rgba(255,255,255,0.3)" }}>{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Verification row */}
+        <div
+          className="mt-5 flex items-center justify-between p-4 rounded-xl"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <div>
+            <p
+              className="text-[11px] mb-1"
+              style={{ color: "rgba(255,255,255,0.2)" }}
+            >
+              Platform Verification
+            </p>
+            <p
+              className="text-[13px]"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              All calculations auditable in source code
+            </p>
+          </div>
+          <div
+            className="flex items-center gap-2 px-4 py-2 rounded-lg"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            <Shield size={14} color="rgba(255,255,255,0.6)" />
+            <span
+              className="text-[11px] font-black tracking-[0.1em]"
+              style={{ color: "rgba(255,255,255,0.7)" }}
+            >
+              VERIFIED AUTHENTIC
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
