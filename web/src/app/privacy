@@ -1,0 +1,488 @@
+"use client";
+
+import AppNav from "@/components/AppNav";
+import InternalLayout from "@/components/InternalLayout";
+
+export default function PrivacyPolicy() {
+  const SECTION_HEADING =
+    "text-[13px] font-semibold tracking-[0.12em] uppercase text-[#cbd5e1] mb-4 mt-8 border-b border-[#1e293b] pb-2";
+  const BODY =
+    "font-inter font-[400] text-[#94a3b8] text-[14px] leading-[1.8] tracking-[0.01em]";
+  const LIST_ITEM = `${BODY} flex gap-3 py-1`;
+
+  return (
+    <InternalLayout>
+      <AppNav />
+
+      {/* Classified document header bar */}
+      <div className="w-full bg-[rgba(255,255,255,0.02)] backdrop-blur-[10px] border-b border-[#1e293b]">
+        <div className="max-w-4xl mx-auto px-6 py-2 flex items-center justify-between">
+          <span className="text-[11px] font-mono tracking-[0.15em] text-[#475569] uppercase">
+            DOC CLASS: PUBLIC // REVISION 3.1
+          </span>
+          <span className="text-[11px] font-mono tracking-[0.15em] text-[#475569] uppercase">
+            EFFECTIVE: 2026-03-23 // JURISDICTION: GLOBAL
+          </span>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto px-6 py-16">
+        {/* Document Header */}
+        <div className="mb-12">
+          <p className="text-[11px] font-mono tracking-[0.2em] text-[#334155] uppercase mb-3">
+            QUVANTI LABS // LEGAL INSTRUMENT NO. 001
+          </p>
+          <h1
+            className="text-[28px] font-[600] text-[#e2e8f0] tracking-[-0.02em] leading-none mb-3"
+            style={{ fontFamily: "Inter, sans-serif" }}
+          >
+            Data Governance & Privacy Disclosure
+          </h1>
+          <p className={`${BODY} text-[#475569]`}>
+            Last revised: 23 March 2026 — Supersedes all prior versions.
+          </p>
+        </div>
+
+        {/* Algorithmic Risk Disclosure — Prominent Box */}
+        <div className="mb-10 border border-[#1e293b] bg-[#0a0f1a] rounded-sm p-6">
+          <p className="text-[11px] font-mono tracking-[0.2em] text-[#475569] uppercase mb-3">
+            MANDATORY DISCLOSURE // ALGORITHMIC RISK
+          </p>
+          <p className={`${BODY} mb-4`}>
+            <span className="text-[#cbd5e1] font-[500]">
+              Algorithmic Risk Disclosure.
+            </span>{" "}
+            The Quvanti platform deploys computational models, statistical
+            inference engines, and machine learning systems to generate
+            quantitative signals. These systems operate on historical data under
+            probabilistic assumptions that may not reflect forward market
+            conditions. All algorithmic outputs are subject to model risk,
+            parameter instability, overfitting, and regime-change failure. No
+            algorithmic system eliminates market risk.
+          </p>
+          <p className={`${BODY} mb-4`}>
+            <span className="text-[#cbd5e1] font-[500]">
+              No Fiduciary Duty.
+            </span>{" "}
+            Quvanti Labs does not hold, accept, or assume any fiduciary duty
+            toward any user, subscriber, or institutional client. The platform
+            is not a registered investment adviser under the Investment Advisers
+            Act of 1940, nor is it registered under equivalent legislation in
+            any jurisdiction. No user-platform relationship constitutes an
+            advisory, brokerage, or custodial relationship.
+          </p>
+          <p className={BODY}>
+            <span className="text-[#cbd5e1] font-[500]">
+              User-side API Management Liability.
+            </span>{" "}
+            Users are solely and exclusively responsible for the configuration,
+            security, rotation, and revocation of all third-party API
+            credentials provisioned within or passed through the platform.
+            Quvanti Labs bears no liability for financial loss, data
+            exfiltration, unauthorized trade execution, or account compromise
+            arising from user-managed API keys, regardless of whether such
+            credentials were entered into platform fields, stored in
+            user-controlled environments, or transmitted via user-initiated
+            integrations.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {/* Section 1 */}
+          <section>
+            <h2 className={SECTION_HEADING}>1. Governing Framework</h2>
+            <p className={BODY}>
+              Quvanti Labs ("the Operator") operates this platform subject to
+              applicable data protection law, including but not limited to the
+              General Data Protection Regulation (EU 2016/679), the California
+              Consumer Privacy Act (Cal. Civ. Code §1798.100 et seq.), and
+              equivalent statutes. This instrument constitutes the complete data
+              governance disclosure required under those frameworks. Use of the
+              Service constitutes unconditional acceptance of this policy in its
+              entirety.
+            </p>
+          </section>
+
+          {/* Section 2 */}
+          <section>
+            <h2 className={SECTION_HEADING}>2. Data Collection Architecture</h2>
+
+            <p className={`${BODY} text-[#cbd5e1] font-[500] mb-2 mt-4`}>
+              2.1 Identity & Authentication Data
+            </p>
+            <p className={`${BODY} mb-3`}>
+              Collected at registration and maintained for the duration of the
+              account lifecycle:
+            </p>
+            <ul className="space-y-1 ml-0 mb-4">
+              {[
+                "Electronic mail address — primary identifier for authentication and operational communications",
+                "Hashed credential token (argon2id, work factor 64MB) — never stored in plaintext",
+                "Payment instrument metadata — tokenized and processed exclusively by designated payment processors; raw PAN data is never received by the Operator",
+                "Subscription tier and license key state — maintained for access control enforcement",
+              ].map((item, i) => (
+                <li key={i} className={LIST_ITEM}>
+                  <span className="text-[#334155] font-mono text-[12px] mt-[3px] flex-shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+
+            <p className={`${BODY} text-[#cbd5e1] font-[500] mb-2`}>
+              2.2 Operational Telemetry
+            </p>
+            <p className={`${BODY} mb-3`}>
+              Automatically captured during platform interaction:
+            </p>
+            <ul className="space-y-1 ml-0 mb-4">
+              {[
+                "Network origin (IP address) — used for rate-limit enforcement and fraud detection; subject to 90-day retention",
+                "User-agent string — captured for device compatibility analysis",
+                "Feature interaction logs — page access, API endpoint calls, agent invocation count",
+                "Strategy configurations and backtest parameter sets — retained as user-generated content",
+                "Execution logs and quantitative model outputs — retained for auditability",
+              ].map((item, i) => (
+                <li key={i} className={LIST_ITEM}>
+                  <span className="text-[#334155] font-mono text-[12px] mt-[3px] flex-shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+
+            <p className={`${BODY} text-[#cbd5e1] font-[500] mb-2`}>
+              2.3 Device Fingerprint Protocol
+            </p>
+            <p className={BODY}>
+              A deterministic, non-reversible device fingerprint is derived from
+              the HMAC-SHA256 hash of the user-agent string concatenated with
+              the originating IP address. This fingerprint is used exclusively
+              to enforce device-count limits on subscription tiers. No biometric
+              data is collected. The fingerprint cannot be used to identify a
+              natural person in isolation.
+            </p>
+          </section>
+
+          {/* Section 3 */}
+          <section>
+            <h2 className={SECTION_HEADING}>
+              3. Lawful Basis & Processing Purposes
+            </h2>
+            <p className={`${BODY} mb-4`}>
+              All data processing is conducted under one or more of the
+              following lawful bases as defined under applicable data protection
+              law:
+            </p>
+            <ul className="space-y-1 ml-0">
+              {[
+                "Contract Performance (Art. 6(1)(b) GDPR) — processing necessary to deliver the agreed Service",
+                "Legitimate Interests (Art. 6(1)(f) GDPR) — fraud prevention, security monitoring, service improvement, and usage analytics",
+                "Legal Obligation (Art. 6(1)(c) GDPR) — retention of financial records for statutory accounting periods",
+                "Consent — where explicitly obtained for non-essential communications",
+              ].map((item, i) => (
+                <li key={i} className={LIST_ITEM}>
+                  <span className="text-[#334155] font-mono text-[12px] mt-[3px] flex-shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* Section 4 */}
+          <section>
+            <h2 className={SECTION_HEADING}>4. Third-Party Data Processors</h2>
+            <p className={`${BODY} mb-4`}>
+              The Operator engages the following sub-processors under binding
+              data processing agreements. Users acknowledge processing by these
+              entities as a condition of Service use:
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr className="border-b border-[#1e293b]">
+                    <th className="text-left py-2 pr-6 text-[#475569] font-[500] font-mono text-[11px] tracking-[0.1em] uppercase">
+                      Processor
+                    </th>
+                    <th className="text-left py-2 pr-6 text-[#475569] font-[500] font-mono text-[11px] tracking-[0.1em] uppercase">
+                      Function
+                    </th>
+                    <th className="text-left py-2 text-[#475569] font-[500] font-mono text-[11px] tracking-[0.1em] uppercase">
+                      Data Category
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    [
+                      "Paddle / LemonSqueezy",
+                      "Payment processing & subscription lifecycle",
+                      "Payment instrument metadata, email",
+                    ],
+                    [
+                      "Neon Technologies Inc.",
+                      "Primary relational data storage (PostgreSQL)",
+                      "All user-generated and operational data",
+                    ],
+                    [
+                      "Anything.com",
+                      "Application hosting & infrastructure",
+                      "All data in transit and at rest",
+                    ],
+                    [
+                      "Google LLC (APIs)",
+                      "License verification via Sheets API",
+                      "License key, email",
+                    ],
+                  ].map(([proc, func, data], i) => (
+                    <tr key={i} className="border-b border-[#0f172a]">
+                      <td className={`py-3 pr-6 ${BODY} text-[#cbd5e1]`}>
+                        {proc}
+                      </td>
+                      <td className={`py-3 pr-6 ${BODY}`}>{func}</td>
+                      <td className={`py-3 ${BODY}`}>{data}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className={`${BODY} mt-4`}>
+              The Operator expressly does not sell, rent, exchange, or otherwise
+              transfer personal data to third parties for commercial or
+              marketing purposes.
+            </p>
+          </section>
+
+          {/* Section 5 */}
+          <section>
+            <h2 className={SECTION_HEADING}>5. Security Controls</h2>
+            <p className={`${BODY} mb-3`}>
+              The following technical and organizational controls are
+              maintained:
+            </p>
+            <ul className="space-y-1 ml-0">
+              {[
+                "Transport-layer encryption: TLS 1.3 enforced on all client-server communications",
+                "Credential storage: argon2id hashing with salt; raw passwords are never persisted",
+                "Authentication: session-based token management via NextAuth.js with rotating secrets",
+                "Database isolation: network-level access controls enforced by infrastructure provider",
+                "Secrets management: all API keys and service credentials stored as environment variables; excluded from source control",
+              ].map((item, i) => (
+                <li key={i} className={LIST_ITEM}>
+                  <span className="text-[#334155] font-mono text-[12px] mt-[3px] flex-shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className={`${BODY} mt-4`}>
+              No transmission medium or storage system achieves absolute
+              security. The Operator provides reasonable commercial efforts
+              toward data protection but cannot warrant against all threat
+              vectors. Users acknowledge this residual risk.
+            </p>
+          </section>
+
+          {/* Section 6 */}
+          <section>
+            <h2 className={SECTION_HEADING}>6. Retention Schedule</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr className="border-b border-[#1e293b]">
+                    <th className="text-left py-2 pr-6 text-[#475569] font-[500] font-mono text-[11px] tracking-[0.1em] uppercase">
+                      Data Category
+                    </th>
+                    <th className="text-left py-2 text-[#475569] font-[500] font-mono text-[11px] tracking-[0.1em] uppercase">
+                      Retention Period
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    [
+                      "Account identity data",
+                      "Duration of account existence; deleted within 30 days of verified deletion request",
+                    ],
+                    [
+                      "Network telemetry (IP, UA)",
+                      "90-day rolling window; auto-purged",
+                    ],
+                    [
+                      "User-generated strategies",
+                      "Duration of account existence; user-deletable at any time",
+                    ],
+                    ["Backtest & execution logs", "90-day rolling window"],
+                    [
+                      "Financial transaction records",
+                      "Statutory minimum per applicable accounting law (typically 7 years)",
+                    ],
+                    [
+                      "Authentication session tokens",
+                      "Session duration; invalidated upon logout",
+                    ],
+                  ].map(([cat, ret], i) => (
+                    <tr key={i} className="border-b border-[#0f172a]">
+                      <td className={`py-3 pr-6 ${BODY} text-[#cbd5e1]`}>
+                        {cat}
+                      </td>
+                      <td className={`py-3 ${BODY}`}>{ret}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Section 7 */}
+          <section>
+            <h2 className={SECTION_HEADING}>7. Data Subject Rights</h2>
+            <p className={`${BODY} mb-3`}>
+              Subject to applicable law, data subjects may exercise the
+              following rights via written request submitted through the
+              platform support channel:
+            </p>
+            <ul className="space-y-1 ml-0">
+              {[
+                "Right of Access (Art. 15 GDPR) — obtain a structured copy of personal data held",
+                "Right to Rectification (Art. 16 GDPR) — correction of demonstrably inaccurate data",
+                "Right to Erasure (Art. 17 GDPR) — deletion of account and associated personal data, subject to legal retention obligations",
+                "Right to Data Portability (Art. 20 GDPR) — export of user-generated strategies in machine-readable format (Pro tier)",
+                "Right to Object (Art. 21 GDPR) — objection to processing based on legitimate interests",
+                "Right to Restriction (Art. 18 GDPR) — limitation of processing pending dispute resolution",
+              ].map((item, i) => (
+                <li key={i} className={LIST_ITEM}>
+                  <span className="text-[#334155] font-mono text-[12px] mt-[3px] flex-shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className={`${BODY} mt-4`}>
+              Requests will be processed within the statutory response window
+              (30 days under GDPR, 45 days under CCPA). Identity verification
+              may be required prior to disclosure. Requests subject to manifest
+              unfoundedness or excessive frequency may be declined or subject to
+              a reasonable fee.
+            </p>
+          </section>
+
+          {/* Section 8 */}
+          <section>
+            <h2 className={SECTION_HEADING}>8. Cookie & Session Tracking</h2>
+            <p className={BODY}>
+              Session management cookies are strictly necessary for
+              authentication and cannot be disabled without forfeiting access to
+              authenticated platform features. Analytics and performance
+              monitoring cookies are deployed solely for operational
+              improvement. No third-party advertising cookies or cross-site
+              tracking mechanisms are deployed. Users may manage non-essential
+              cookies through browser-level controls.
+            </p>
+          </section>
+
+          {/* Section 9 */}
+          <section>
+            <h2 className={SECTION_HEADING}>9. Cross-Border Data Transfers</h2>
+            <p className={BODY}>
+              Personal data may be processed in jurisdictions outside the user's
+              country of residence, including the United States. Where transfers
+              originate from the European Economic Area, transfers are conducted
+              under Standard Contractual Clauses (EU Commission Decision
+              2021/914) or equivalent approved transfer mechanisms. Use of the
+              Service constitutes informed acknowledgment of such transfers.
+            </p>
+          </section>
+
+          {/* Section 10 */}
+          <section>
+            <h2 className={SECTION_HEADING}>10. Age Restriction</h2>
+            <p className={BODY}>
+              The Service is restricted to individuals aged 18 years or older.
+              The Operator does not knowingly collect personal data from minors.
+              Discovery of minor-age data will result in immediate deletion and
+              account termination. Parents or guardians aware of unauthorized
+              minor access should notify the Operator immediately.
+            </p>
+          </section>
+
+          {/* Section 11 */}
+          <section>
+            <h2 className={SECTION_HEADING}>11. Policy Amendments</h2>
+            <p className={BODY}>
+              This policy may be amended unilaterally by the Operator. Material
+              amendments will be communicated via registered email address a
+              minimum of 14 calendar days prior to effect. Continued use of the
+              Service following the effective date of any amendment constitutes
+              binding acceptance. Users who do not accept amended terms must
+              cease use and may request account deletion.
+            </p>
+          </section>
+
+          {/* Section 12 — CCPA */}
+          <section>
+            <h2 className={SECTION_HEADING}>
+              12. California Resident Rights (CCPA/CPRA)
+            </h2>
+            <p className={BODY}>
+              California residents are entitled to: (i) disclosure of categories
+              of personal information collected and purposes of collection; (ii)
+              disclosure of categories of third parties with whom personal
+              information is shared; (iii) deletion of personal information
+              subject to statutory exceptions; (iv) correction of inaccurate
+              personal information; (v) opt-out of sale or sharing of personal
+              information (the Operator does not sell personal information). The
+              Operator does not engage in automated decision-making that
+              produces legal or similarly significant effects upon users.
+            </p>
+          </section>
+
+          {/* Section 13 */}
+          <section>
+            <h2 className={SECTION_HEADING}>
+              13. Contact & Supervisory Authority
+            </h2>
+            <p className={BODY}>
+              Data governance inquiries, subject access requests, and complaints
+              should be directed through the platform support system. EU/EEA
+              residents retain the right to lodge a complaint with the relevant
+              national supervisory authority if responses are deemed inadequate.
+            </p>
+          </section>
+        </div>
+
+        {/* Document Footer */}
+        <div className="mt-16 pt-8 border-t border-[#1e293b]">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <p className={`${BODY} text-[#334155] text-[12px]`}>
+              QUVANTI LABS — DATA GOVERNANCE INSTRUMENT NO. 001 — REV 3.1
+            </p>
+            <div className="flex items-center gap-6">
+              {[
+                { label: "Terms of Service", href: "/terms" },
+                { label: "Dashboard", href: "/dashboard" },
+              ].map(({ label, href }) => (
+                <a
+                  key={href}
+                  href={href}
+                  className="text-[#334155] hover:text-[#94a3b8] text-[12px] font-mono tracking-[0.08em] uppercase transition-colors"
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </InternalLayout>
+  );
+}
+
+
+
