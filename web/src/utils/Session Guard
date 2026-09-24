@@ -1,0 +1,156 @@
+/**
+ * ============================================================
+ * QUVANTI LABS — CLIENT-SIDE SESSION FINGERPRINT GUARD
+ * ============================================================
+ * Uses Web Crypto API (SubtleCrypto SHA-256). No Node.js deps.
+ * Safe for SSR — all fingerprinting only runs in browser context.
+ *
+ * Fingerprint Inputs:
+ *   User-Agent, language, screen dimensions + color depth,
+ *   timezone offset, CPU cores, platform, touch support
+ *
+ * On shift detection:
+ *   1. Clears sessionStorage
+ *   2. Clears known localStorage auth keys
+ *   3. Reports shift to /api/security/anomaly-detect (fire-and-forget)
+ *   4. Invokes onShift() callback so caller can redirect/logout
+ * ============================================================
+ */
+"use client";
+
+import { useState, useEffect } from "react";
+
+const FP_STORAGE_KEY = "_qvt_sg_fp";
+const FP_VERSION = "v2";
+
+// ── SHA-256 via Web Crypto ────────────────────────────────────────────────
+async function sha256(text) {
+  if (typeof window === "undefined" || !window.crypto?.subtle) {
+    return `fallback_${text.length}`;
+  }
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ── Browser Context Collector ─────────────────────────────────────────────
+function collectBrowserContext() {
+  if (typeof window === "undefined") return "ssr";
+  const features = [
+    FP_VERSION,
+    navigator.userAgent || "",
+    navigator.language || "",
+    (navigator.languages || []).join(","),
+    `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    String(new Date().getTimezoneOffset()),
+    String(navigator.hardwareConcurrency || ""),
+    navigator.platform || "",
+    String("ontouchstart" in window),
+    String(navigator.maxTouchPoints || 0),
+  ];
+  return features.join("|");
+}
+
+// ── Compute Fingerprint ───────────────────────────────────────────────────
+export async function computeFingerprint() {
+  return sha256(collectBrowserContext());
+}
+
+// ── Core Guard Function (non-React) ──────────────────────────────────────
+export async function initSessionGuard({
+  onShift = null,
+  reportToServer = true,
+  purgeOnShift = true,
+} = {}) {
+  if (typeof window === "undefined") {
+    return { clean: true, fingerprint: null, shifted: false };
+  }
+
+  try {
+    const currentFingerprint = await computeFingerprint();
+    const storedFingerprint = sessionStorage.getItem(FP_STORAGE_KEY);
+
+    // First visit — enroll
+    if (!storedFingerprint) {
+      sessionStorage.setItem(FP_STORAGE_KEY, currentFingerprint);
+      return { clean: true, fingerprint: currentFingerprint, shifted: false };
+    }
+
+    // Fingerprint matches — all good
+    if (storedFingerprint === currentFingerprint) {
+      return { clean: true, fingerprint: currentFingerprint, shifted: false };
+    }
+
+    // ── SHIFT DETECTED ──────────────────────────────────────────────────
+    console.warn("[SessionGuard] Fingerprint shift detected — purging state");
+
+    if (purgeOnShift) {
+      sessionStorage.clear();
+      [
+        "_auth_token",
+        "next-auth.session-token",
+        "next-auth.csrf-token",
+      ].forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch (_) {}
+      });
+      sessionStorage.setItem(FP_STORAGE_KEY, currentFingerprint);
+    }
+
+    if (reportToServer) {
+      fetch("/api/security/anomaly-detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "fingerprint_shift",
+          currentFingerprint,
+          storedFingerprint,
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString(),
+        }),
+      }).catch(() => {});
+    }
+
+    if (typeof onShift === "function") {
+      onShift({ fingerprint: currentFingerprint, stored: storedFingerprint });
+    }
+
+    return { clean: false, fingerprint: currentFingerprint, shifted: true };
+  } catch (err) {
+    console.error("[SessionGuard] Error — failing open:", err);
+    return { clean: true, fingerprint: null, shifted: false };
+  }
+}
+
+// ── React Hook ────────────────────────────────────────────────────────────
+/**
+ * Usage in any Client Component:
+ *   const { shifted } = useSessionGuard({ onShift: () => router.push('/account/signin') });
+ */
+export function useSessionGuard({
+  onShift,
+  reportToServer = true,
+  purgeOnShift = true,
+} = {}) {
+  const [state, setState] = useState({
+    shifted: false,
+    fingerprint: null,
+    clean: true,
+  });
+
+  useEffect(() => {
+    initSessionGuard({ onShift, reportToServer, purgeOnShift }).then(
+      (result) => {
+        setState(result);
+      },
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return state;
+}
+
+
+
