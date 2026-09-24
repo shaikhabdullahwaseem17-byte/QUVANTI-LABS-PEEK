@@ -1,0 +1,170 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+
+/**
+ * MonteCarloTelemetry — v3 (full precision rebuild)
+ * ─────────────────────────────────────────────────────────────
+ * 45 Geometric Brownian Motion paths on a transparent canvas.
+ *   44 variance paths  → lineWidth 0.6 / rgba(255,255,255,0.03)
+ *    1 validated route → lineWidth 1.2 / rgba(255,255,255,0.85)
+ * requestAnimationFrame breathing micro-animation.
+ * Right-edge createLinearGradient alpha fade.
+ * canvas background: fully transparent — no backdrop fill.
+ */
+
+const N_PATHS = 45;
+const GOLDEN_IDX = 19; // the single validated route
+
+/* Box-Muller transform — proper Gaussian sample */
+function randn() {
+  let u = 0,
+    v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/* Build 45 independent GBM paths starting at {x:0, y:H/2} */
+function buildPaths(W, H) {
+  const STEPS = 140;
+  const dXstep = W / STEPS;
+  const result = [];
+
+  for (let i = 0; i < N_PATHS; i++) {
+    const pts = [{ x: 0, y: H / 2 }];
+    const drift = (Math.random() - 0.46) * H * 0.0022; // subtle upward bias
+    const vol = (0.45 + Math.random() * 0.85) * H * 0.011;
+    let y = H / 2;
+
+    for (let s = 1; s <= STEPS; s++) {
+      y += drift + randn() * vol;
+      /* elastic boundary — paths reflect at edges rather than clipping */
+      if (y < H * 0.05) y = H * 0.05 + Math.abs(randn() * vol * 0.3);
+      if (y > H * 0.95) y = H * 0.95 - Math.abs(randn() * vol * 0.3);
+      pts.push({ x: dXstep * s, y });
+    }
+    result.push(pts);
+  }
+  return result;
+}
+
+export default function MonteCarloTelemetry() {
+  const canvasRef = useRef(null);
+  const rafRef = useRef(null);
+  const stateRef = useRef({ paths: null, W: 0, H: 0 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+
+    /* ── Resize — resets transform before re-scaling to prevent drift ── */
+    function resize() {
+      const parent = canvas.parentElement;
+      if (!parent) return;
+      const rect = parent.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const W = rect.width;
+      const H = rect.height;
+
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // reset before scale
+      ctx.scale(dpr, dpr);
+
+      stateRef.current = { paths: buildPaths(W, H), W, H };
+    }
+
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas.parentElement);
+
+    /* ── Render loop ── */
+    function draw(t) {
+      const { paths, W, H } = stateRef.current;
+      if (!paths || W === 0 || H === 0) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      ctx.clearRect(0, 0, W, H);
+
+      /* Breathing micro-offset — slow sine sway in Y */
+      const breathe = Math.sin(t * 0.00028) * H * 0.009;
+
+      /* ── 44 ghost variance paths ── */
+      for (let i = 0; i < N_PATHS; i++) {
+        if (i === GOLDEN_IDX) continue;
+
+        const pts = paths[i];
+        const phase = 0.35 + (i % 7) * 0.09; // per-path sway phase
+
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y + breathe * phase);
+        for (let s = 1; s < pts.length; s++) {
+          ctx.lineTo(pts[s].x, pts[s].y + breathe * phase);
+        }
+
+        /* Right-edge alpha fade — exact spec: rgba(255,255,255,0.03) */
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, "rgba(255,255,255,0)");
+        grad.addColorStop(0.06, "rgba(255,255,255,0.03)");
+        grad.addColorStop(0.7, "rgba(255,255,255,0.03)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+      }
+
+      /* ── 1 validated golden route ── */
+      const vp = paths[GOLDEN_IDX];
+
+      ctx.beginPath();
+      ctx.moveTo(vp[0].x, vp[0].y + breathe * 0.55);
+      for (let s = 1; s < vp.length; s++) {
+        ctx.lineTo(vp[s].x, vp[s].y + breathe * 0.55);
+      }
+
+      /* Fade in from left, hold full opacity, fade out at right edge */
+      const goldenGrad = ctx.createLinearGradient(0, 0, W, 0);
+      goldenGrad.addColorStop(0, "rgba(255,255,255,0)");
+      goldenGrad.addColorStop(0.05, "rgba(255,255,255,0.85)");
+      goldenGrad.addColorStop(0.78, "rgba(255,255,255,0.85)");
+      goldenGrad.addColorStop(1, "rgba(255,255,255,0)");
+
+      ctx.strokeStyle = goldenGrad;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      rafRef.current = requestAnimationFrame(draw);
+    }
+
+    rafRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      style={{
+        display: "block",
+        width: "100%",
+        height: "100%",
+        background: "transparent",
+      }}
+    />
+  );
+}
+
+
+
