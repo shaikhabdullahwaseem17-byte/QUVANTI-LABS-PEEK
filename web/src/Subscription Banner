@@ -1,0 +1,63 @@
+import { Zap, Crown, Key } from "lucide-react";
+
+export default function SubscriptionBanner({ tier, usage }) {
+  if (tier === "pro") {
+    return (
+      <div className="bg-gradient-to-r from-amber-900/20 to-orange-900/20 border-2 border-amber-600/50 rounded-xl p-4 mb-6 shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-[#F59E0B] to-[#F97316] p-2 rounded-lg shadow-lg">
+              <Crown className="text-white" size={20} />
+            </div>
+            <div>
+              <h3 className="text-[#F59E0B] font-bold">Pro Account</h3>
+              <p className="text-gray-300 text-sm">
+                Create up to 3 agents per 24 hours
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-[#F59E0B]">∞</div>
+            <div className="text-xs text-gray-400">unlimited agents</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-cyan-900/20 to-purple-900/20 border-2 border-cyan-600/50 rounded-xl p-4 mb-6 shadow-xl">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-gradient-to-br from-[#06B6D4] to-[#7C3AED] p-2 rounded-lg shadow-lg">
+            <Zap className="text-white" size={20} />
+          </div>
+          <div>
+            <h3 className="text-[#06B6D4] font-bold">Free Account</h3>
+            <p className="text-gray-300 text-sm">
+              1 agent creation (lifetime limit)
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <a
+            href="/upgrade"
+            className="bg-gradient-to-r from-[#F59E0B] to-[#F97316] hover:from-[#D97706] hover:to-[#EA580C] text-white px-4 py-2 rounded-lg font-medium transition-all text-sm shadow-lg shadow-amber-500/30"
+          >
+            Upgrade to Pro
+          </a>
+          <a
+            href="/activate"
+            className="bg-[#1a1f2e] hover:bg-[#252a35] border-2 border-[#2a3441] text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2"
+          >
+            <Key size={16} />
+            Have a Key?
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
