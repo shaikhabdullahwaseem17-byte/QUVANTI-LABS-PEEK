@@ -1,6 +1,6 @@
 # Quvanti Labs
 
-> AI-driven quantitative strategy builder with institutional-grade backtesting, Monte Carlo simulation, and walk-forward validation.
+> Autonomous Quant Telemtry
 
 **Live app:** [quvantilabs.com](https://quvantilabs.com)
 
@@ -37,11 +37,11 @@ The target user is anyone who has trading ideas but no background in programming
 
 ## The Problem
 
-Retail traders and finance students routinely backtest strategies on platforms like TradingView's Pine Script or Python/pandas notebooks. The barrier is high: you need to write code, source and clean data, avoid look-ahead bias, understand statistical significance, and know what questions to even ask of the results.
+Retail traders and finance students routinely backtest strategies on platforms like TradingView's Pine Script or Python/pandas notebooks. The barrier is high: you need to write code, pay alot often, source and clean data, avoid look-ahead bias, understand statistical significance, and know what questions to even ask of the results.
 
 More subtly, most tools that do give you a backtest give you *optimistic* results. They use the same data to both fit and evaluate the strategy — a form of data dredging that produces win rates and Sharpe ratios that evaporate in live trading. Professional quant shops have known this for decades and use walk-forward analysis, out-of-sample testing, and Monte Carlo methods to catch it. These techniques are rarely exposed to retail users in an accessible form.
 
-Quvanti's thesis is that the *methodology* is the product. Anyone can build a backtest button. Surfacing Hurst exponent, OOS degradation, Monte Carlo ruin probability, and overfit detection in a plain-language UI is the actual work.
+Quvanti's thesis is that the *methodology* is the product. Anyone can build a backtest button. Surfacing Hurst exponent, OOS degradation, Monte Carlo ruin probability, and overfit detection in a plain-language UI is the actual work. 
 
 ---
 
@@ -624,7 +624,7 @@ AI tools were used to accelerate implementation velocity, not to make product or
 - **Walk-forward window size**: Fixed windows are used. Adaptive walk-forward windows would improve out-of-sample validity.
 - **Mobile alerts**: The mobile alerts tab uses static mock data and is not yet wired to the backend alerts table.
 - **No email notifications**: Alerts are in-app only; no email or push notification delivery is implemented yet.
-- **Not all code is in this repository. This repository does not include Pro features' code files, env. files, possibly sensitive files and some UI and UX files. 
+- **Not all code is in this repository. Pro features' code files, env. files, possibly sensitive files and some UI and UX files are excluded. 
 
 
 ## Roadmap (Subject to Change)
@@ -638,13 +638,17 @@ AI tools were used to accelerate implementation velocity, not to make product or
 - Expanded broker integrations (IBKR live, Coinbase)
 - Backtesting for forex and commodities
 - Strategy sharing marketplace (public share token system exists, UI partially built)
+- Overcoming aforementioned Limitations
 
 
 ## Feedback
 We could make mistakes, so can the AI.
-Love and sincerity went into this. If something seems like an error, please report it to helloquvanti@gmail.com 
-If you cant pay for the Pro subscription, don't use it as an excuse to not work better, please contact us.
+Love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
 We care for both expert and non-expert opinion. 
+
+If you cant pay for the Pro subscription, don't use it as an excuse to not work better, please contact us.
+
+
 
 ###Last Updated
 9/24/2026
