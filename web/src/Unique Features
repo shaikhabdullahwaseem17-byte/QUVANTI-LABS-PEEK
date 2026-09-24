@@ -1,0 +1,235 @@
+"use client";
+
+import {
+  Sparkles,
+  Brain,
+  Shield,
+  TrendingUp,
+  Code,
+  Zap,
+  Target,
+  Database,
+  ChevronRight,
+  Award,
+} from "lucide-react";
+
+const FEATURES = [
+  {
+    icon: Brain,
+    title: "Explainable AI — Not Black Box",
+    description:
+      "Every signal includes EXACT reasoning: 'RSI at 32 (Oversold) + Volume Profile shows HVN at $65,500 floor = 72% reversal probability based on 5-year correlation.'",
+    badge: "ONLY ON QUVANTI",
+  },
+  {
+    icon: Shield,
+    title: "Anti-Overfit Detection System",
+    description:
+      "Automatic warnings if Win Rate > 80% or Profit Factor > 3.0. We TELL YOU when results look 'too good to be true' — no other platform does this.",
+    badge: "WORLD FIRST",
+  },
+  {
+    icon: TrendingUp,
+    title: "Monte Carlo Simulation (1000 Runs)",
+    description:
+      "See your strategy's Probability of Ruin — run 1000 variations with randomized noise. Institutional hedge fund-level validation.",
+    badge: "HEDGE FUND TECH",
+  },
+  {
+    icon: Database,
+    title: "Walk-Forward Analysis",
+    description:
+      "Auto-split data into In-Sample (optimize) and Out-of-Sample (validate). Flags overfitting if performance drops > 30%. NO other retail platform has this.",
+    badge: "INSTITUTIONAL GRADE",
+  },
+  {
+    icon: Target,
+    title: "Volume Profile + Auction Market Theory",
+    description:
+      "Not just RSI/MACD. We include POC (Point of Control), VAH/VAL (Value Area), HVN/LVN nodes. Bloomberg Terminal features, FREE.",
+    badge: "BLOOMBERG-LEVEL",
+  },
+  {
+    icon: Code,
+    title: "Pine Script v5 + Python Bot Export",
+    description:
+      "Exports as runnable TradingView Pine Script v5 AND a Python CCXT trading bot. Both are real, syntactically correct code — not instructions or pseudocode.",
+    badge: "REAL CODE",
+  },
+  {
+    icon: Sparkles,
+    title: "Hurst Exponent (Trend Persistence)",
+    description:
+      "Advanced metric showing if trends persist or mean-revert. Used by quant funds, never seen in retail. We made it accessible.",
+    badge: "QUANT ONLY",
+  },
+  {
+    icon: Zap,
+    title: "60-Second Results — Not Hours",
+    description:
+      "Other platforms: write code for hours. Us: describe in English, get results in 60 seconds. Speed without sacrificing accuracy.",
+    badge: "10× FASTER",
+  },
+  {
+    icon: Award,
+    title: "Zero Hallucinations — Real Math Only",
+    description:
+      "Every indicator (RSI, MACD, Sharpe) uses industry-standard formulas. Not AI text generation. Auditable calculations.",
+    badge: "MATHEMATICALLY VERIFIED",
+  },
+];
+
+export default function UniqueFeatures() {
+  return (
+    <div className="py-20">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* ── Header ─────────────────────────────────────────────────── */}
+        <div className="text-center mb-16">
+          <span
+            className="inline-block text-[10px] font-medium tracking-[0.18em] uppercase mb-6"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            Why Traders Choose Quvanti
+          </span>
+          <h2 className="text-[clamp(2.2rem,5vw,3.8rem)] font-black text-white leading-[1.06] tracking-[-0.04em] mb-5">
+            Built different.
+            <span
+              className="block"
+              style={{
+                background:
+                  "linear-gradient(110deg,#C8D6EF 0%,#fff 40%,#C8D6EF 100%)",
+                backgroundClip: "text",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Priced for everyone.
+            </span>
+          </h2>
+          <p
+            className="text-[16px] max-w-2xl mx-auto leading-relaxed"
+            style={{ color: "rgba(255,255,255,0.45)" }}
+          >
+            Institutional quant infrastructure — distilled into plain English.
+            Here is what you get automatically on every strategy.
+          </p>
+        </div>
+
+        {/* ── Feature Grid ───────────────────────────────────────────── */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {FEATURES.map((feature, index) => {
+            const Icon = feature.icon;
+            return (
+              <a
+                key={index}
+                href={index < 5 ? "/agents/create" : "/strategy-lab"}
+                className="group block rounded-xl p-6 transition-all duration-300 hover:-translate-y-0.5"
+                style={{
+                  background: "rgba(2,2,2,0.30)",
+                  backdropFilter: "blur(24px)",
+                  WebkitBackdropFilter: "blur(24px)",
+                  border: "1px solid rgba(255,255,255,0.025)",
+                  textDecoration: "none",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.border =
+                    "1px solid rgba(255,255,255,0.07)";
+                  e.currentTarget.style.background = "rgba(2,2,2,0.45)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.border =
+                    "1px solid rgba(255,255,255,0.025)";
+                  e.currentTarget.style.background = "rgba(2,2,2,0.30)";
+                }}
+              >
+                {/* Badge */}
+                <div className="flex items-start justify-between mb-5">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(255,255,255,0.05)" }}
+                  >
+                    <Icon size={17} color="#ffffff" />
+                  </div>
+                  <span
+                    className="text-[9px] font-medium tracking-[0.15em] uppercase"
+                    style={{ color: "rgba(255,255,255,0.3)" }}
+                  >
+                    {feature.badge}
+                  </span>
+                </div>
+
+                {/* Title */}
+                <h3
+                  className="text-[17px] font-medium leading-snug tracking-[-0.04em] mb-3"
+                  style={{ color: "#ffffff" }}
+                >
+                  {feature.title}
+                </h3>
+
+                {/* Description */}
+                <p
+                  className="text-[13px] leading-relaxed mb-4"
+                  style={{ color: "rgba(226,232,240,0.65)" }}
+                >
+                  {feature.description}
+                </p>
+
+                {/* CTA */}
+                <div
+                  className="flex items-center gap-1.5 text-[11px] font-medium tracking-[0.05em] transition-all duration-200 group-hover:gap-2.5"
+                  style={{ color: "rgba(255,255,255,0.3)" }}
+                >
+                  <span>Explore</span>
+                  <ChevronRight size={12} />
+                </div>
+              </a>
+            );
+          })}
+        </div>
+
+        {/* ── Comparison CTA ─────────────────────────────────────────── */}
+        <div
+          className="mt-8 rounded-xl p-10 text-center"
+          style={{
+            background: "rgba(2,2,2,0.30)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,255,255,0.025)",
+          }}
+        >
+          <span
+            className="block text-[10px] font-medium tracking-[0.18em] uppercase mb-4"
+            style={{ color: "rgba(255,255,255,0.3)" }}
+          >
+            Competitive Edge
+          </span>
+          <h3 className="text-[2rem] font-black tracking-[-0.04em] text-white mb-4 leading-tight">
+            Still using other platforms?
+          </h3>
+          <p
+            className="text-[15px] mb-8 max-w-lg mx-auto leading-relaxed"
+            style={{ color: "rgba(255,255,255,0.4)" }}
+          >
+            They don't have Monte Carlo, Walk-Forward, or Volume Profile. You're
+            trading without institutional-grade validation.
+          </p>
+          <a
+            href="/agents/create"
+            className="inline-flex items-center gap-3 px-8 py-3.5 rounded-xl font-bold text-[14px] transition-all duration-200 hover:scale-[1.03] hover:shadow-[0_8px_32px_rgba(255,255,255,0.15)]"
+            style={{
+              background: "#ffffff",
+              color: "#000000",
+              boxShadow: "0 4px 20px rgba(255,255,255,0.1)",
+            }}
+          >
+            <Sparkles size={16} />
+            See What You're Missing
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
