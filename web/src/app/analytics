@@ -1,0 +1,785 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  PieChart,
+  Activity,
+  Award,
+  Shield,
+  Zap,
+  RefreshCw,
+  Download,
+  Target,
+} from "lucide-react";
+import AppNav from "@/components/AppNav";
+import Footer from "@/components/Footer";
+import InternalLayout from "@/components/InternalLayout";
+import GlassButton from "@/components/GlassButton";
+import AnimatedIcon from "@/components/AnimatedIcon";
+import QuantAnalysisSection from "@/components/QuantAnalysisSection";
+import {
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  PieChart as RPieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+
+export default function AnalyticsPage() {
+  const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState(null);
+  const [error, setError] = useState(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
+
+  const loadAnalytics = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/analytics/portfolio");
+      if (!response.ok) throw new Error("Failed to load analytics");
+
+      const data = await response.json();
+      setAnalytics(data);
+    } catch (err) {
+      console.error("Analytics error:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <InternalLayout>
+        <AppNav />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <AnimatedIcon
+              icon={RefreshCw}
+              size={48}
+              variant="action"
+              spinning={true}
+              style={{ color: "#22D3EE", marginBottom: "16px" }}
+            />
+            <p className="text-[#F8FAFC] text-lg font-semibold">
+              Loading Analytics...
+            </p>
+          </div>
+        </div>
+      </InternalLayout>
+    );
+  }
+
+  if (error || !analytics) {
+    return (
+      <InternalLayout>
+        <AppNav />
+        <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+          <BarChart3
+            className="mx-auto mb-6"
+            size={64}
+            style={{ color: "#334155" }}
+          />
+          <h2 className="text-2xl font-bold text-[#F8FAFC] mb-4">
+            No Data Available
+          </h2>
+          <p className="mb-8 text-muted-obsidian" style={{ color: "#94A3B8" }}>
+            Create your first trading agent to see analytics
+          </p>
+          <a href="/agents/create">
+            <GlassButton variant="accent" size="lg">
+              <Zap size={18} />
+              Create First Agent
+            </GlassButton>
+          </a>
+        </div>
+      </InternalLayout>
+    );
+  }
+
+  const { portfolio, agents, bestPerformer, timeSeriesData, riskMetrics } =
+    analytics;
+
+  const COLORS = {
+    primary: "#06B6D4",
+    secondary: "#7C3AED",
+    success: "#10B981",
+    danger: "#EF4444",
+    warning: "#F59E0B",
+  };
+
+  // ── Real CSV Export ───────────────────────────────────────────────────────
+  const exportReport = async () => {
+    if (!analytics) return;
+    setExportLoading(true);
+    try {
+      const { portfolio, agents, riskMetrics } = analytics;
+      const now = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+
+      // ── Summary section ─────────────────────────────────────────────────
+      const summaryRows = [
+        ["QUVANTI LABS — Portfolio Report", now],
+        [],
+        ["SUMMARY METRICS"],
+        ["Metric", "Value"],
+        [
+          "Total Portfolio Value",
+          `$${Number(portfolio.totalValue).toFixed(2)}`,
+        ],
+        ["Total P&L", `$${Number(portfolio.totalPnL).toFixed(2)}`],
+        ["Total Return %", `${portfolio.totalPnLPercentage}%`],
+        ["Active Agents", portfolio.activeAgents],
+        ["Total Agents", portfolio.totalAgents],
+        ["Average Win Rate", `${portfolio.averageWinRate}%`],
+        ["Average Sharpe Ratio", portfolio.avgSharpeRatio],
+        ["Max Drawdown", `${riskMetrics.maxDrawdown}%`],
+        ["Portfolio Volatility", `${riskMetrics.volatility}%`],
+        [],
+        ["AGENT BREAKDOWN"],
+        ["Agent Name", "Status", "Total Trades", "P&L ($)", "Open Positions"],
+      ];
+
+      const agentRows = (agents || []).map((a) => [
+        a.name,
+        a.status,
+        a.totalTrades,
+        Number(a.pnl).toFixed(2),
+        a.positions,
+      ]);
+
+      // ── Fetch individual agent backtests for full trade log ─────────────
+      let tradeLogRows = [
+        [],
+        ["FULL TRADE LOG"],
+        ["Agent", "Date", "Symbol", "Type", "Qty", "Price ($)", "Status"],
+      ];
+
+      try {
+        const agentsRes = await fetch("/api/agents/list");
+        if (agentsRes.ok) {
+          const agentsData = await agentsRes.json();
+          for (const agent of (agentsData.agents || []).slice(0, 10)) {
+            const agentRes = await fetch(`/api/agents/${agent.id}`);
+            if (agentRes.ok) {
+              const agentData = await agentRes.json();
+              for (const t of (agentData.recentTrades || []).slice(0, 50)) {
+                tradeLogRows.push([
+                  agent.name,
+                  new Date(t.executed_at).toLocaleString(),
+                  t.symbol,
+                  t.trade_type.toUpperCase(),
+                  Number(t.quantity).toFixed(4),
+                  Number(t.price).toFixed(2),
+                  t.status,
+                ]);
+              }
+            }
+          }
+        }
+      } catch (tradeErr) {
+        console.warn("Trade log fetch failed:", tradeErr.message);
+      }
+
+      // ── Assemble CSV ────────────────────────────────────────────────────
+      const allRows = [...summaryRows, ...agentRows, ...tradeLogRows];
+
+      const csvContent = allRows
+        .map((row) =>
+          row
+            .map((cell) => {
+              const s = String(cell ?? "");
+              return s.includes(",") || s.includes('"') || s.includes("\n")
+                ? `"${s.replace(/"/g, '""')}"`
+                : s;
+            })
+            .join(","),
+        )
+        .join("\n");
+
+      // ── Trigger download ────────────────────────────────────────────────
+      if (typeof window !== "undefined") {
+        const blob = new Blob([csvContent], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `quvanti-report-${now}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+      }
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Export failed: " + err.message);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  return (
+    <InternalLayout>
+      <AppNav />
+
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-black text-[#F8FAFC] mb-2 dynamic-flow-header">
+              Portfolio Analytics
+            </h1>
+            <p className="text-[#94A3B8] text-lg font-[400]">
+              Professional-grade insights into your trading performance
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <GlassButton
+              variant="ghost"
+              size="sm"
+              onClick={loadAnalytics}
+              style={{
+                width: "44px",
+                height: "44px",
+                padding: 0,
+                borderRadius: "12px",
+              }}
+            >
+              <AnimatedIcon
+                icon={RefreshCw}
+                size={18}
+                variant="action"
+                spinning={loading}
+                style={{ color: "#22D3EE" }}
+              />
+            </GlassButton>
+            <GlassButton
+              variant="default"
+              size="md"
+              onClick={exportReport}
+              disabled={exportLoading}
+              style={{
+                background: "rgba(124,58,237,0.18)",
+                border: "1px solid rgba(124,58,237,0.35)",
+                color: "#C084FC",
+              }}
+            >
+              <AnimatedIcon
+                icon={Download}
+                size={16}
+                variant="action"
+                spinning={exportLoading}
+              />
+              {exportLoading ? "Generating CSV..." : "Export Report"}
+            </GlassButton>
+          </div>
+        </div>
+
+        {/* Key Metrics Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {[
+            {
+              label: "Total Value",
+              icon: TrendingUp,
+              accent: "#10B981",
+              value: `$${portfolio.totalValue.toFixed(2)}`,
+              sub: `${parseFloat(portfolio.totalPnL) >= 0 ? "+" : ""}$${portfolio.totalPnL.toFixed(2)} (${portfolio.totalPnLPercentage}%)`,
+              subColor:
+                parseFloat(portfolio.totalPnL) >= 0 ? "#34D399" : "#F87171",
+            },
+            {
+              label: "Active Agents",
+              icon: Activity,
+              accent: "#06B6D4",
+              value: portfolio.activeAgents,
+              sub: `of ${portfolio.totalAgents} total`,
+              subColor: "#22D3EE",
+            },
+            {
+              label: "Avg Win Rate",
+              icon: Award,
+              accent: "#7C3AED",
+              value: `${portfolio.averageWinRate}%`,
+              sub:
+                parseFloat(portfolio.averageWinRate) > 55
+                  ? "Excellent"
+                  : "Keep improving",
+              subColor: "#C084FC",
+            },
+            {
+              label: "Sharpe Ratio",
+              icon: Target,
+              accent: "#F59E0B",
+              value: portfolio.avgSharpeRatio,
+              sub:
+                parseFloat(portfolio.avgSharpeRatio) > 1
+                  ? "Strong"
+                  : "Moderate",
+              subColor: "#FCD34D",
+            },
+          ].map(({ label, icon: Icon, accent, value, sub, subColor }) => (
+            <div
+              key={label}
+              className="relative overflow-hidden rounded-2xl p-6 transition-all hover:-translate-y-1"
+              style={{
+                background: `rgba(${accent === "#10B981" ? "16,185,129" : accent === "#06B6D4" ? "6,182,212" : accent === "#7C3AED" ? "124,58,237" : "245,158,11"},0.06)`,
+                border: `1px solid rgba(${accent === "#10B981" ? "16,185,129" : accent === "#06B6D4" ? "6,182,212" : accent === "#7C3AED" ? "124,58,237" : "245,158,11"},0.2)`,
+                backdropFilter: "blur(16px)",
+              }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-bold" style={{ color: accent }}>
+                  {label}
+                </span>
+                <AnimatedIcon
+                  icon={Icon}
+                  size={18}
+                  variant="breathe"
+                  style={{ color: accent, opacity: 0.8 }}
+                />
+              </div>
+              <div className="text-4xl font-black text-white mb-2">{value}</div>
+              <div
+                className="text-sm font-semibold"
+                style={{ color: subColor }}
+              >
+                {sub}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Portfolio Performance Chart */}
+        <div
+          className="rounded-2xl p-8 mb-8"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.07)",
+            backdropFilter: "blur(16px)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-black text-[#F8FAFC] mb-1 no-breathe">
+                Portfolio Performance
+              </h2>
+              <p style={{ color: "#94A3B8", fontWeight: 400 }}>
+                30-day historical value
+              </p>
+            </div>
+            <AnimatedIcon
+              icon={BarChart3}
+              size={24}
+              variant="breathe"
+              style={{ color: "#22D3EE" }}
+            />
+          </div>
+          <ResponsiveContainer width="100%" height={400}>
+            <AreaChart data={timeSeriesData}>
+              <defs>
+                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="5%"
+                    stopColor={COLORS.primary}
+                    stopOpacity={0.25}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={COLORS.primary}
+                    stopOpacity={0}
+                  />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(255,255,255,0.04)"
+              />
+              <XAxis
+                dataKey="date"
+                stroke="#334155"
+                tick={{ fill: "#64748B" }}
+              />
+              <YAxis stroke="#334155" tick={{ fill: "#64748B" }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "rgba(0,0,0,0.9)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "12px",
+                  color: "#fff",
+                  backdropFilter: "blur(16px)",
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={COLORS.primary}
+                strokeWidth={2.5}
+                fillOpacity={1}
+                fill="url(#colorValue)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          {/* Risk Metrics */}
+          <div
+            className="rounded-2xl p-8"
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              backdropFilter: "blur(16px)",
+            }}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div
+                className="p-3 rounded-xl"
+                style={{
+                  background: "rgba(239,68,68,0.12)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                }}
+              >
+                <AnimatedIcon
+                  icon={Shield}
+                  size={22}
+                  variant="breathe"
+                  style={{ color: "#F87171" }}
+                />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-[#F8FAFC] no-breathe">
+                  Risk Metrics
+                </h2>
+                <p className="text-sm" style={{ color: "#94A3B8" }}>
+                  Portfolio risk analysis
+                </p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {[
+                {
+                  label: "Max Drawdown",
+                  value: `-${riskMetrics.maxDrawdown}%`,
+                  sub: "Largest peak-to-trough decline",
+                  accent: "rgba(239,68,68,0.08)",
+                  borderAccent: "rgba(239,68,68,0.15)",
+                  textColor: "#FFFFFF",
+                  icon: TrendingDown,
+                  iconColor: "#F87171",
+                },
+                {
+                  label: "Volatility",
+                  value: `${riskMetrics.volatility}%`,
+                  sub: "Annualized standard deviation",
+                  accent: "rgba(6,182,212,0.08)",
+                  borderAccent: "rgba(6,182,212,0.15)",
+                  textColor: "#FFFFFF",
+                  icon: Activity,
+                  iconColor: "#22D3EE",
+                },
+                {
+                  label: "Risk-Adjusted Return",
+                  value: riskMetrics.sharpeRatio,
+                  sub: "Sharpe ratio (higher is better)",
+                  accent: "rgba(16,185,129,0.08)",
+                  borderAccent: "rgba(16,185,129,0.15)",
+                  textColor: "#FFFFFF",
+                  icon: Target,
+                  iconColor: "#34D399",
+                },
+              ].map(
+                ({
+                  label,
+                  value,
+                  sub,
+                  accent,
+                  borderAccent,
+                  textColor,
+                  icon: Icon,
+                  iconColor,
+                }) => (
+                  <div
+                    key={label}
+                    className="p-4 rounded-xl"
+                    style={{
+                      background: accent,
+                      border: `1px solid ${borderAccent}`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className="text-sm font-semibold"
+                        style={{ color: iconColor }}
+                      >
+                        {label}
+                      </span>
+                      <AnimatedIcon
+                        icon={Icon}
+                        size={16}
+                        variant="spring"
+                        style={{ color: iconColor }}
+                      />
+                    </div>
+                    <div className="text-3xl font-black text-white">
+                      {value}
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: "#94A3B8" }}>
+                      {sub}
+                    </p>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+
+          {/* Best Performer */}
+          <div
+            className="rounded-2xl p-8"
+            style={{
+              background: "rgba(245,158,11,0.05)",
+              border: "1px solid rgba(245,158,11,0.2)",
+              backdropFilter: "blur(16px)",
+            }}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div
+                className="p-3 rounded-xl"
+                style={{
+                  background: "rgba(245,158,11,0.2)",
+                  border: "1px solid rgba(245,158,11,0.35)",
+                }}
+              >
+                <AnimatedIcon
+                  icon={Award}
+                  size={22}
+                  variant="breathe"
+                  style={{ color: "#FDE68A" }}
+                />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-[#F8FAFC] no-breathe">
+                  Top Performer
+                </h2>
+                <p className="text-sm text-amber-300 font-[400]">
+                  Best trading agent
+                </p>
+              </div>
+            </div>
+            {bestPerformer ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-sm text-amber-300 mb-1">Agent Name</div>
+                  <div className="text-2xl font-black text-white">
+                    {bestPerformer.agentName}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  {[
+                    {
+                      label: "Return",
+                      value: `+${bestPerformer.return}%`,
+                      accent: "rgba(16,185,129,0.15)",
+                      borderColor: "rgba(16,185,129,0.25)",
+                      textColor: "#34D399",
+                    },
+                    {
+                      label: "Win Rate",
+                      value: `${bestPerformer.winRate}%`,
+                      accent: "rgba(168,85,247,0.15)",
+                      borderColor: "rgba(168,85,247,0.25)",
+                      textColor: "#C084FC",
+                    },
+                    {
+                      label: "Sharpe",
+                      value: bestPerformer.sharpe,
+                      accent: "rgba(6,182,212,0.15)",
+                      borderColor: "rgba(6,182,212,0.25)",
+                      textColor: "#22D3EE",
+                    },
+                  ].map(({ label, value, accent, borderColor, textColor }) => (
+                    <div
+                      key={label}
+                      className="p-3 rounded-xl"
+                      style={{
+                        background: accent,
+                        border: `1px solid ${borderColor}`,
+                      }}
+                    >
+                      <div
+                        className="text-xs mb-1"
+                        style={{ color: textColor }}
+                      >
+                        {label}
+                      </div>
+                      <div className="text-xl font-black text-white">
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="p-4 rounded-xl text-center"
+                  style={{
+                    background: "rgba(245,158,11,0.08)",
+                    border: "1px solid rgba(245,158,11,0.18)",
+                  }}
+                >
+                  <p
+                    className="text-sm font-semibold"
+                    style={{ color: "#FDE68A" }}
+                  >
+                    This agent would have turned $10K into $
+                    {(
+                      10000 *
+                      (1 + parseFloat(bestPerformer.return) / 100)
+                    ).toFixed(0)}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p style={{ color: "#94A3B8" }}>
+                  Run backtests to see your top performer
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Agent Performance Table */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
+          <div
+            className="px-8 py-6"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <h2 className="text-2xl font-black text-[#F8FAFC] no-breathe">
+              Agent Breakdown
+            </h2>
+            <p className="mt-1" style={{ color: "#94A3B8", fontWeight: 400 }}>
+              Individual performance metrics
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead style={{ background: "rgba(255,255,255,0.03)" }}>
+                <tr>
+                  {["Agent", "Status", "Trades", "P&L", "Positions"].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider"
+                        style={{ color: "#64748B" }}
+                      >
+                        {h}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((agent, idx) => (
+                  <tr
+                    key={agent.id}
+                    className="transition-colors"
+                    style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background =
+                        "rgba(255,255,255,0.02)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    <td className="px-6 py-4">
+                      <a
+                        href={`/agents/${agent.id}`}
+                        className="font-semibold transition-colors"
+                        style={{ color: "#F8FAFC" }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = "#22D3EE";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = "#F8FAFC";
+                        }}
+                      >
+                        {agent.name}
+                      </a>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold"
+                        style={
+                          agent.status === "active"
+                            ? {
+                                background: "rgba(16,185,129,0.12)",
+                                color: "#34D399",
+                                border: "1px solid rgba(16,185,129,0.25)",
+                              }
+                            : {
+                                background: "rgba(255,255,255,0.05)",
+                                color: "#64748B",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                              }
+                        }
+                      >
+                        {agent.status === "active" && (
+                          <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                        )}
+                        {agent.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-white">
+                      {agent.totalTrades}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className="font-black"
+                        style={{
+                          color: agent.pnl >= 0 ? "#34D399" : "#F87171",
+                        }}
+                      >
+                        {agent.pnl >= 0 ? "+" : ""}${agent.pnl.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-white">
+                      {agent.positions}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <QuantAnalysisSection timeSeriesData={timeSeriesData || []} />
+      </div>
+
+      <Footer />
+    </InternalLayout>
+  );
+}
+
+
+
