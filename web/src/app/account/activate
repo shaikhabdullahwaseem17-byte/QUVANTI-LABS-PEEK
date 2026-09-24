@@ -1,0 +1,194 @@
+"use client";
+
+import { useState } from "react";
+import { ArrowLeft, Key, Loader, Zap } from "lucide-react";
+import AppNav from "@/components/AppNav";
+import InternalLayout from "@/components/InternalLayout";
+
+export default function ActivateLicense() {
+  const [licenseKey, setLicenseKey] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  const handleActivate = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      const response = await fetch("/api/subscription/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ licenseKey: licenseKey.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Activation failed");
+      setSuccess(data.message);
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 2000);
+    } catch (err) {
+      console.error("License activation error:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <InternalLayout>
+      <AppNav />
+      <div className="flex items-center justify-center px-6 py-16">
+        <div className="max-w-md w-full">
+          <a
+            href="/dashboard"
+            className="inline-flex items-center gap-2 text-[#8B9EB5] hover:text-white transition-colors mb-8 text-[13px]"
+          >
+            <ArrowLeft size={16} />
+            Back to Dashboard
+          </a>
+
+          {/* Glass Card */}
+          <div
+            className="rounded-2xl p-8"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              backdropFilter: "blur(24px)",
+              boxShadow:
+                "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
+            <div className="flex items-center gap-3 mb-8">
+              <div
+                className="p-3 rounded-xl"
+                style={{
+                  background: "rgba(245,158,11,0.15)",
+                  border: "1px solid rgba(245,158,11,0.25)",
+                }}
+              >
+                <Key className="text-amber-400" size={22} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-white no-breathe">
+                  Activate License
+                </h1>
+                <p className="text-[#8B9EB5] text-[13px]">
+                  Enter your Pro license key
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleActivate} className="space-y-5">
+              <div>
+                <label className="block text-[12px] font-semibold text-[#8B9EB5] uppercase tracking-widest mb-2">
+                  License Key
+                </label>
+                <input
+                  type="text"
+                  value={licenseKey}
+                  onChange={(e) => setLicenseKey(e.target.value)}
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  required
+                  className="w-full rounded-xl px-4 py-3 text-white font-mono text-[15px] outline-none placeholder-[#4A5568] transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                />
+                <p className="text-[#4A5568] text-[11px] mt-2">
+                  Check your email for the license key sent after purchase
+                </p>
+              </div>
+
+              {error && (
+                <div
+                  className="rounded-xl p-3 text-[13px] text-red-300"
+                  style={{
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.2)",
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+              {success && (
+                <div
+                  className="rounded-xl p-3 text-[13px] text-emerald-300"
+                  style={{
+                    background: "rgba(52,211,153,0.08)",
+                    border: "1px solid rgba(52,211,153,0.2)",
+                  }}
+                >
+                  {success}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !licenseKey.trim()}
+                className="w-full py-3 rounded-xl text-[14px] font-bold text-white transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 relative overflow-hidden group"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #F59E0B 0%, #F97316 100%)",
+                  boxShadow: "0 8px 32px rgba(245,158,11,0.25)",
+                }}
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                <span className="relative flex items-center gap-2">
+                  {loading ? (
+                    <>
+                      <Loader className="animate-spin" size={18} />
+                      Activating...
+                    </>
+                  ) : (
+                    <>
+                      <Key size={18} />
+                      Activate Pro License
+                    </>
+                  )}
+                </span>
+              </button>
+            </form>
+
+            <div
+              className="mt-6 pt-6"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+            >
+              <p className="text-[#8B9EB5] text-[13px] text-center mb-3">
+                Don't have a license yet?
+              </p>
+              <a
+                href="/upgrade"
+                className="block text-center text-[#5B8CFF] hover:text-[#8A7CFF] font-semibold transition-colors text-[14px]"
+              >
+                Upgrade to Pro →
+              </a>
+            </div>
+          </div>
+
+          {/* Notice */}
+          <div
+            className="mt-5 rounded-xl p-4"
+            style={{
+              background: "rgba(245,158,11,0.07)",
+              border: "1px solid rgba(245,158,11,0.2)",
+            }}
+          >
+            <p className="text-amber-400 text-[11px] font-semibold uppercase tracking-widest mb-1">
+              Important
+            </p>
+            <p className="text-[#94A3B8] text-[12px]">
+              Ensure your Lemon Squeezy payment email matches your Quvanti login
+              email.
+            </p>
+          </div>
+        </div>
+      </div>
+    </InternalLayout>
+  );
+}
+
+
+
