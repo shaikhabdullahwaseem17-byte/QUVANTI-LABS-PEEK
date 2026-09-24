@@ -1,0 +1,77 @@
+// Quvanti Service Worker - Elite Caching Strategy
+// Version: 1.0.0
+const CACHE_VERSION = "quvanti-v1";
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
+const API_CACHE = `${CACHE_VERSION}-api`;
+
+// Assets to cache immediately on install
+const STATIC_ASSETS = [
+  "/",
+  "/dashboard",
+  "/signals",
+  "/agents/create",
+  "/strategy-lab",
+  "/offline",
+  "/manifest.json",
+  "/icons/icon-192x192.png",
+  "/icons/icon-512x512.png",
+];
+
+// Install event - cache static assets
+self.addEventListener("install", (event) => {
+  console.log("[Service Worker] Installing...");
+  event.waitUntil(
+    caches
+      .open(STATIC_CACHE)
+      .then((cache) => {
+        console.log("[Service Worker] Caching static assets");
+        return cache.addAll(STATIC_ASSETS);
+      })
+      .then(() => {
+        console.log("[Service Worker] Installation complete");
+        return self.skipWaiting(); // Activate immediately
+      }),
+  );
+});
+
+// Activate event - clean up old caches
+self.addEventListener("activate", (event) => {
+  console.log("[Service Worker] Activating...");
+  event.waitUntil(
+    caches
+      .keys()
+      .then((cacheNames) => {
+        return Promise.all(
+          cacheNames
+            .filter(
+              (name) =>
+                name.startsWith("quvanti-") &&
+                name !== STATIC_CACHE &&
+                name !== DYNAMIC_CACHE &&
+                name !== API_CACHE,
+            )
+            .map((name) => {
+              console.log("[Service Worker] Deleting old cache:", name);
+              return caches.delete(name);
+            }),
+        );
+      })
+      .then(() => {
+        console.log("[Service Worker] Activation complete");
+        return self.clients.claim(); // Take control immediately
+      }),
+  );
+});
+
+// Fetch event - stale-while-revalidate strategy
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // Skip cross-origin requests (e.g., external APIs)
+  if (url.origin !== location.origin) {
+    return;
+  }
+
+  // API requests - network-first with cache fallback
