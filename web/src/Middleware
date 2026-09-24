@@ -1,0 +1,139 @@
+import { checkRateLimit } from "./app/api/rate-limit/route";
+
+/**
+ * QUVANTI LABS — Hardened Security Middleware
+ * 1. CSRF Protection: validates Origin on all state-changing requests
+ * 2. In-memory rate limiting: coarse-grained protection on hot endpoints
+ * 3. Security response headers: added to every /api response
+ */
+
+const ALLOWED_ORIGINS = [
+  process.env.NEXT_PUBLIC_CREATE_APP_URL,
+  process.env.AUTH_URL,
+  "http://localhost:3000",
+  "http://localhost:3001",
+].filter(Boolean);
+
+// ── Security Headers (added to all API responses) ─────────────────────────
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "1; mode=block",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+};
+
+function addSecurityHeaders(response) {
+  const headers = new Headers(response.headers);
+  Object.entries(SECURITY_HEADERS).forEach(([k, v]) => headers.set(k, v));
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+export async function middleware(request) {
+  const { pathname } = request.nextUrl;
+  const method = request.method;
+
+  // ── CSRF Protection ────────────────────────────────────────────────────
+  const stateChangingMethods = ["POST", "PUT", "DELETE", "PATCH"];
+
+  if (pathname.startsWith("/api/") && stateChangingMethods.includes(method)) {
+    // Exclude auth callback and webhook routes from CSRF (they use their own verification)
+    const csrfExcluded = [
+      "/api/auth/",
+      "/api/paddle/webhook",
+      "/api/security/anomaly-detect", // Client-reported events — no origin to check
+    ];
+    const isCsrfExcluded = csrfExcluded.some((p) => pathname.startsWith(p));
+
+    if (!isCsrfExcluded) {
+      const requestOrigin =
+        request.headers.get("origin") || request.headers.get("referer");
+
+      let isAllowedOrigin = false;
+      if (requestOrigin) {
+        isAllowedOrigin = ALLOWED_ORIGINS.some((allowed) => {
+          try {
+            const requestUrl = new URL(requestOrigin);
+            const allowedUrl = new URL(allowed);
+            return requestUrl.origin === allowedUrl.origin;
+          } catch {
+            return requestOrigin.startsWith(allowed);
+          }
+        });
+      }
+
+      if (!isAllowedOrigin && requestOrigin) {
+        console.warn(
+          `[CSRF] Blocked ${method} ${pathname} from unauthorized origin: ${requestOrigin}`,
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Forbidden",
+            message: "CSRF validation failed: Invalid origin",
+            code: "CSRF_INVALID_ORIGIN",
+          }),
+          {
+            status: 403,
+            headers: {
+              "Content-Type": "application/json",
+              ...SECURITY_HEADERS,
+            },
+          },
+        );
+      }
+    }
+  }
+
+  // ── In-Memory Rate Limiting (coarse-grained, serverless-safe-ish) ──────
+  const rateLimitedPaths = [
+    "/api/signals/generate",
+    "/api/agents/create",
+    "/api/backtest/run",
+    "/api/strategy-lab/parse",
+    "/api/quant-engine", // CPU-heavy: Monte Carlo + Hurst (also DB-rate-limited inside handler)
+    "/api/quant-engine/genetic", // Genetic optimizer
+    "/api/quant-engine/ofi", // Order Flow Imbalance
+    "/api/security/anomaly-detect", // Client-reported events — no origin to check
+  ];
+
+  if (rateLimitedPaths.some((path) => pathname.startsWith(path))) {
+    const identifier =
+      request.ip || request.headers.get("x-forwarded-for") || "anonymous";
+
+    const rateLimit = checkRateLimit(identifier, pathname);
+
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: "rate_limit_exceeded",
+          retryAfter: rateLimit.retryAfter,
+          message: `Too many requests. Please try again in ${rateLimit.retryAfter} seconds.`,
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": rateLimit.retryAfter.toString(),
+            "X-RateLimit-Limit": rateLimit.limit.toString(),
+            "X-RateLimit-Remaining": "0",
+            ...SECURITY_HEADERS,
+          },
+        },
+      );
+    }
+  }
+
+  return Response.next();
+}
+
+export const config = {
+  matcher: "/api/:path*",
+};
+
+
+
