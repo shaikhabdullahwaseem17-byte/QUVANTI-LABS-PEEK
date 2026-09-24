@@ -1,0 +1,195 @@
+import { create } from "zustand";
+
+const MAX_LOG_LINES = 500;
+const RECONNECT_DELAY_MS = 5000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+/**
+ * Terminal Store
+ * Manages the diagnostics terminal state: which agent is selected,
+ * whether the terminal is open, which tab is active, and polled log data.
+ */
+const useTerminalStore = create((set, get) => ({
+  // UI State
+  terminalOpen: false,
+  selectedAgentId: null,
+  selectedAgentData: null,
+  activeTab: "log",
+
+  // Log Data
+  logLines: [],
+  logLoading: false,
+  logError: null,
+
+  // SSE State
+  sseStatus: "disconnected", // 'connecting' | 'connected' | 'error' | 'disconnected'
+  reconnectCount: 0,
+  _eventSource: null,
+  _reconnectTimer: null,
+
+  // Download State
+  downloadLoading: false,
+
+  openTerminal: (agent) => {
+    const { stopSSE, startSSE } = get();
+    stopSSE();
+    set({
+      terminalOpen: true,
+      selectedAgentId: agent.id,
+      selectedAgentData: agent,
+      logLines: [],
+      logError: null,
+      activeTab: "log",
+      sseStatus: "connecting",
+      reconnectCount: 0,
+    });
+    startSSE(agent.id);
+  },
+
+  closeTerminal: () => {
+    get().stopSSE();
+    set({
+      terminalOpen: false,
+      selectedAgentId: null,
+      selectedAgentData: null,
+      logLines: [],
+      logError: null,
+      sseStatus: "disconnected",
+      reconnectCount: 0,
+    });
+  },
+
+  setActiveTab: (tab) => {
+    set({ activeTab: tab });
+    const { sseStatus, selectedAgentId, startSSE, stopSSE } = get();
+    if (tab === "log" && selectedAgentId && sseStatus === "disconnected") {
+      startSSE(selectedAgentId);
+    } else if (tab !== "log") {
+      stopSSE();
+    }
+  },
+
+  startSSE: (agentId) => {
+    if (typeof window === "undefined") return;
+    const { stopSSE } = get();
+    stopSSE();
+
+    let es;
+    try {
+      es = new EventSource(`/api/agents/${agentId}/stream`);
+    } catch (err) {
+      set({
+        sseStatus: "error",
+        logError: `Failed to open SSE: ${err.message}`,
+      });
+      return;
+    }
+
+    set({ _eventSource: es, sseStatus: "connecting" });
+
+    es.onopen = () => {
+      set({ sseStatus: "connected", logError: null, reconnectCount: 0 });
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "connected") {
+          set({ sseStatus: "connected", logError: null });
+          return;
+        }
+        if (data.type === "session_expired") {
+          set({
+            sseStatus: "disconnected",
+            logError: "Session expired. Close and reopen terminal.",
+          });
+          es.close();
+          return;
+        }
+        if (data.type === "log") {
+          const { logLines } = get();
+          const trimmed =
+            logLines.length >= MAX_LOG_LINES
+              ? logLines.slice(-MAX_LOG_LINES + 1)
+              : logLines;
+          set({ logLines: [...trimmed, data] });
+        }
+      } catch {}
+    };
+
+    es.onerror = () => {
+      const { reconnectCount, _reconnectTimer } = get();
+      if (_reconnectTimer) clearTimeout(_reconnectTimer);
+      if (reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
+        set({
+          sseStatus: "error",
+          logError: `Connection lost after ${MAX_RECONNECT_ATTEMPTS} retries. Close and reopen terminal.`,
+          _eventSource: null,
+        });
+        es.close();
+        return;
+      }
+      set({ sseStatus: "error", reconnectCount: reconnectCount + 1 });
+      es.close();
+      const timer = setTimeout(() => {
+        const { selectedAgentId: aid, terminalOpen } = get();
+        if (terminalOpen && aid === agentId) get().startSSE(agentId);
+      }, RECONNECT_DELAY_MS);
+      set({ _reconnectTimer: timer });
+    };
+  },
+
+  stopSSE: () => {
+    const { _eventSource, _reconnectTimer } = get();
+    if (_reconnectTimer) clearTimeout(_reconnectTimer);
+    if (_eventSource) _eventSource.close();
+    set({
+      _eventSource: null,
+      _reconnectTimer: null,
+      sseStatus: "disconnected",
+    });
+  },
+
+  setLogLines: (lines) => set({ logLines: lines }),
+  setLogLoading: (loading) => set({ logLoading: loading }),
+  setLogError: (error) => set({ logError: error }),
+
+  appendLogLine: (line) => {
+    const { logLines } = get();
+    const trimmed =
+      logLines.length >= MAX_LOG_LINES
+        ? logLines.slice(-MAX_LOG_LINES + 1)
+        : logLines;
+    set({ logLines: [...trimmed, line] });
+  },
+
+  clearLogs: () => set({ logLines: [] }),
+
+  downloadAuditReport: async () => {
+    const { selectedAgentId } = get();
+    if (!selectedAgentId) return;
+    set({ downloadLoading: true });
+    try {
+      const res = await fetch(`/api/agents/${selectedAgentId}/audit-report`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quvanti-audit-agent-${selectedAgentId}-${new Date().toISOString().substring(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err) {
+      set({ logError: `Audit report download failed: ${err.message}` });
+    } finally {
+      set({ downloadLoading: false });
+    }
+  },
+}));
+
+export default useTerminalStore;
+
+
+
