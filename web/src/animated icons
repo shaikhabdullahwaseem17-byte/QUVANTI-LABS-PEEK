@@ -1,0 +1,275 @@
+"use client";
+
+import { useRef, useState, useEffect, useCallback } from "react";
+
+/**
+ * AnimatedIcon — Quvanti iOS 26-grade spring physics icon engine
+ *
+ * VARIANTS:
+ *   spring      — Tactile elastic bounce on click via CSS :active cascade
+ *   toggle      — Binary on/off morph (iOS Bluetooth style path-draw)
+ *   action      — Continuous Y-axis breathing when spinning=true
+ *   alert       — Dampened 15° shake on false→true transition (iOS notification)
+ *   breathe     — Slow passive opacity+scale pulse for decorative icons
+ *   glow        — Color-reactive drop-shadow pulse (brand/accent icons)
+ *   spin        — Continuous smooth rotation (loader, refresh)
+ *   live        — iOS radar ping: scale outward for live/active status
+ *   success     — Spring burst with green glow on trigger
+ *   error       — X-axis shake with red glow on trigger
+ *   float       — Gentle vertical drift for decorative icons
+ *   draw        — Spring mount animation (scales + rotates in on mount)
+ *   burst       — Tap explosion: scale overshoot → settle (action feedback)
+ *   orbit       — Continuous rotation with mid-scale dip (settings/cog)
+ *   shimmer     — Amber glow shimmer (Crown/Pro/premium icons)
+ *   think       — Left/right sway (AI processing, loading thought)
+ *   morph       — Smooth size+opacity state transition on active change
+ *   nav         — Nav link: glow+scale when active=true, spring on hover
+ *   trend       — Upward drift loop (TrendingUp, BarChart, trading icons)
+ *   charge      — Power sweep animation (Zap, battery, energy icons)
+ *   ping        — Concentric ripple ring (notification/alert badge)
+ *
+ * HARDWARE RULES:
+ *   - will-change: transform, opacity always set (GPU layer promotion)
+ *   - Spring bezier: cubic-bezier(0.175, 0.885, 0.32, 1.275) everywhere
+ *   - Zero layout shift — wrapper is inline-flex, flexShrink: 0
+ *   - All keyframes defined in layout.jsx global CSS
+ */
+export default function AnimatedIcon({
+  icon: Icon,
+  size = 16,
+  color,
+  variant = "spring",
+  active = false,
+  spinning = false,
+  pulsing = false,
+  className = "",
+  style = {},
+  onAnimationEnd,
+  triggerBurst = false,
+  ...rest
+}) {
+  const [shaking, setShaking] = useState(false);
+  const [bursting, setBursting] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const [drawn, setDrawn] = useState(false);
+  const [prevActive, setPrevActive] = useState(active);
+  const shakeTimer = useRef(null);
+  const burstTimer = useRef(null);
+  const successTimer = useRef(null);
+  const errorTimer = useRef(null);
+
+  // ── DRAW: fire once on mount ──────────────────────────────────
+  useEffect(() => {
+    if (variant === "draw") {
+      setDrawn(true);
+    }
+  }, [variant]);
+
+  // ── ALERT: fire on false→true transition ─────────────────────
+  useEffect(() => {
+    if (variant === "alert" && active && !prevActive) {
+      setShaking(true);
+      clearTimeout(shakeTimer.current);
+      shakeTimer.current = setTimeout(() => setShaking(false), 450);
+    }
+    setPrevActive(active);
+    return () => clearTimeout(shakeTimer.current);
+  }, [active, variant, prevActive]);
+
+  // Fire shake on mount too if already active
+  useEffect(() => {
+    if (variant === "alert" && active) {
+      setShaking(true);
+      shakeTimer.current = setTimeout(() => setShaking(false), 450);
+    }
+    return () => clearTimeout(shakeTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── SUCCESS: expose trigger via prop ─────────────────────────
+  useEffect(() => {
+    if (variant === "success" && active) {
+      setSucceeded(true);
+      successTimer.current = setTimeout(() => {
+        setSucceeded(false);
+        onAnimationEnd?.();
+      }, 600);
+    }
+    return () => clearTimeout(successTimer.current);
+  }, [active, variant, onAnimationEnd]);
+
+  // ── ERROR: trigger on active flip ─────────────────────────────
+  useEffect(() => {
+    if (variant === "error" && active) {
+      setErrored(true);
+      setTimeout(() => setErrored(false), 500);
+    }
+  }, [active, variant]);
+
+  // ── BURST: external trigger ────────────────────────────────────
+  useEffect(() => {
+    if (triggerBurst) {
+      setBursting(true);
+      burstTimer.current = setTimeout(() => {
+        setBursting(false);
+        onAnimationEnd?.();
+      }, 520);
+    }
+    return () => clearTimeout(burstTimer.current);
+  }, [triggerBurst, onAnimationEnd]);
+
+  // ── CLASS RESOLVER ─────────────────────────────────────────────
+  const variantClass = (() => {
+    switch (variant) {
+      case "toggle":
+        return active ? "qvi-on" : "qvi-off";
+
+      case "action":
+        return spinning ? "qvi-action" : "";
+
+      case "alert":
+        return shaking ? "qvi-shake" : "";
+
+      case "breathe":
+        return "qvi-breathe";
+
+      case "glow":
+        return "qvi-glow";
+
+      case "spin":
+        return "qvi-spin";
+
+      case "live":
+        return spinning || pulsing ? "qvi-live" : "";
+
+      case "success":
+        return succeeded ? "qvi-success" : "";
+
+      case "error":
+        return errored ? "qvi-error" : "";
+
+      case "float":
+        return "qvi-float";
+
+      case "draw":
+        return drawn ? "qvi-draw" : "";
+
+      case "burst":
+        return bursting ? "qvi-burst" : "";
+
+      case "orbit":
+        return "qvi-orbit";
+
+      case "shimmer":
+        return "qvi-shimmer";
+
+      case "think":
+        return spinning || pulsing ? "qvi-think" : "";
+
+      case "morph":
+        return active ? "qvi-morph" : "qvi-off";
+
+      case "nav":
+        return active ? "qvi-nav-active" : "";
+
+      case "trend":
+        return "qvi-trend";
+
+      case "charge":
+        return active ? "qvi-charge" : "";
+
+      case "ping":
+        return pulsing ? "qvi-ping" : "";
+
+      default:
+        // "spring" — CSS :active on parent button/a drives scale(0.92)
+        return "";
+    }
+  })();
+
+  return (
+    <span
+      className={`qvi ${variantClass} ${className}`.replace(/\s+/g, " ").trim()}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        willChange: "transform, opacity",
+        transformOrigin: "center center",
+        lineHeight: 0,
+        flexShrink: 0,
+        ...style,
+      }}
+    >
+      <Icon size={size} color={color} {...rest} />
+    </span>
+  );
+}
+
+/**
+ * AnimatedIconButton — Drop-in animated icon wrapped in a button
+ * Handles burst feedback on click automatically.
+ */
+export function AnimatedIconButton({
+  icon: Icon,
+  size = 16,
+  color,
+  variant = "spring",
+  active = false,
+  onClick,
+  className = "",
+  buttonClassName = "",
+  style = {},
+  title,
+  disabled = false,
+  ...rest
+}) {
+  const [bursting, setBursting] = useState(false);
+  const timer = useRef(null);
+
+  const handleClick = useCallback(
+    (e) => {
+      setBursting(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setBursting(false), 520);
+      onClick?.(e);
+    },
+    [onClick],
+  );
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={disabled}
+      title={title}
+      className={buttonClassName}
+      style={{
+        background: "none",
+        border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+        padding: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <AnimatedIcon
+        icon={Icon}
+        size={size}
+        color={color}
+        variant={variant}
+        active={active}
+        triggerBurst={bursting}
+        className={className}
+        style={style}
+        {...rest}
+      />
+    </button>
+  );
+}
+
+
+
