@@ -1,0 +1,2034 @@
+"use client";
+
+import { useState, useEffect, useRef, useMemo } from "react";
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Trash2,
+  Activity,
+  AlertCircle,
+  TrendingUp,
+  TrendingDown,
+  Shield,
+  Zap,
+  BarChart2,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  RefreshCw,
+  Share2,
+  Copy,
+  Check,
+  Award,
+  Terminal,
+} from "lucide-react";
+import AppNav from "@/components/AppNav";
+import AgentTerminal from "@/components/AgentTerminal";
+
+// ─── Number formatters ────────────────────────────────────────────────────────
+function fmtCurrency(v) {
+  const n = Number(v);
+  if (isNaN(n)) return "$—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  }).format(n);
+}
+function fmtPct(v, showSign = true) {
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  return (showSign && n > 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+function fmtNum(v, decimals = 2) {
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  return n.toFixed(decimals);
+}
+
+// ─── KPI colour logic ─────────────────────────────────────────────────────────
+function sharpeColor(v) {
+  const n = Number(v);
+  if (n >= 1.5) return "#34D399";
+  if (n >= 0.8) return "#FBBF24";
+  return "#F87171";
+}
+function drawdownColor(v) {
+  const n = Number(v);
+  if (n <= 10) return "#34D399";
+  if (n <= 25) return "#FBBF24";
+  return "#F87171";
+}
+function winRateColor(v) {
+  const n = Number(v);
+  if (n >= 55) return "#34D399";
+  if (n >= 45) return "#FBBF24";
+  return "#F87171";
+}
+function returnColor(v) {
+  return Number(v) >= 0 ? "#34D399" : "#F87171";
+}
+
+// ─── SVG Equity Curve ─────────────────────────────────────────────────────────
+function EquityChart({
+  equityCurve = [],
+  trades = [],
+  initialCapital = 10000,
+}) {
+  const W = 800,
+    H = 220,
+    PAD = { top: 16, right: 16, bottom: 32, left: 64 };
+  const data = equityCurve.slice(0, 300);
+  if (data.length < 2)
+    return (
+      <div
+        style={{
+          height: H,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#4A5568",
+          fontSize: 13,
+        }}
+      >
+        No equity data available
+      </div>
+    );
+
+  const values = data.map((d) => d.equity || d);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+
+  const xS = (i) =>
+    PAD.left + (i / (data.length - 1)) * (W - PAD.left - PAD.right);
+  const yS = (v) =>
+    PAD.top + (1 - (v - minV) / range) * (H - PAD.top - PAD.bottom);
+
+  const linePath = data
+    .map(
+      (d, i) =>
+        `${i === 0 ? "M" : "L"}${xS(i).toFixed(1)},${yS(d.equity || d).toFixed(1)}`,
+    )
+    .join(" ");
+  const areaPath =
+    linePath +
+    ` L${xS(data.length - 1).toFixed(1)},${(H - PAD.bottom).toFixed(1)} L${xS(0).toFixed(1)},${(H - PAD.bottom).toFixed(1)} Z`;
+
+  const finalVal = values[values.length - 1];
+  const isProfit = finalVal >= initialCapital;
+  const lineColor = isProfit ? "#34D399" : "#F87171";
+  const gradId = isProfit ? "eqGreen" : "eqRed";
+
+  // Y-axis ticks
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+    y: PAD.top + (1 - p) * (H - PAD.top - PAD.bottom),
+    label: fmtCurrency(minV + p * range),
+  }));
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: H, display: "block" }}
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={lineColor} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={lineColor} stopOpacity="0.01" />
+        </linearGradient>
+      </defs>
+      {/* Grid lines */}
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line
+            x1={PAD.left}
+            x2={W - PAD.right}
+            y1={t.y}
+            y2={t.y}
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="1"
+            strokeDasharray="4 4"
+          />
+          <text
+            x={PAD.left - 6}
+            y={t.y + 4}
+            textAnchor="end"
+            fill="#4A5568"
+            fontSize="9"
+            fontFamily="monospace"
+          >
+            {t.label}
+          </text>
+        </g>
+      ))}
+      {/* Break-even line */}
+      <line
+        x1={PAD.left}
+        x2={W - PAD.right}
+        y1={yS(initialCapital)}
+        y2={yS(initialCapital)}
+        stroke="rgba(255,255,255,0.18)"
+        strokeWidth="1"
+        strokeDasharray="6 3"
+      />
+      {/* Area fill */}
+      <path d={areaPath} fill={`url(#${gradId})`} />
+      {/* Equity line */}
+      <path
+        d={linePath}
+        fill="none"
+        stroke={lineColor}
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      {/* Trade markers (BUY = triangle up, SELL = triangle down) */}
+      {trades.slice(0, 60).map((t, i) => {
+        const idx = Math.min(
+          Math.round((i / trades.length) * (data.length - 1)),
+          data.length - 1,
+        );
+        const cx = xS(idx);
+        const cy = yS(data[idx]?.equity || values[idx] || minV);
+        const isBuy = t.action === "BUY";
+        return (
+          <polygon
+            key={i}
+            points={
+              isBuy
+                ? `${cx},${cy - 7} ${cx - 4},${cy} ${cx + 4},${cy}`
+                : `${cx},${cy + 7} ${cx - 4},${cy} ${cx + 4},${cy}`
+            }
+            fill={isBuy ? "#34D399" : "#F87171"}
+            opacity="0.85"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Monte Carlo Fan Chart ────────────────────────────────────────────────────
+function MonteCarloChart({ mc, initialCapital = 10000 }) {
+  if (!mc?.confidenceIntervals)
+    return (
+      <div
+        style={{
+          height: 180,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#4A5568",
+          fontSize: 13,
+        }}
+      >
+        Monte Carlo data not available (requires 5+ closed trades)
+      </div>
+    );
+
+  const W = 600,
+    H = 180,
+    PAD = { top: 16, right: 24, bottom: 28, left: 72 };
+  const ci = mc.confidenceIntervals.finalCapital;
+  const allVals = [
+    mc.worstCase,
+    ci.lower,
+    ci.median,
+    ci.upper,
+    mc.bestCase,
+    initialCapital,
+  ].filter(Boolean);
+  const minV = Math.min(...allVals);
+  const maxV = Math.max(...allVals);
+  const range = maxV - minV || 1;
+
+  // We draw a "fan" from left (initial capital) to right (outcomes)
+  // 5 horizontal outcome levels → fan from point to spread
+  const x0 = PAD.left;
+  const x1 = W - PAD.right;
+  const yS = (v) =>
+    PAD.top + (1 - (v - minV) / range) * (H - PAD.top - PAD.bottom);
+
+  const yWorst = yS(mc.worstCase || minV);
+  const yLower = yS(ci.lower);
+  const yMedian = yS(ci.median);
+  const yUpper = yS(ci.upper);
+  const yBest = yS(mc.bestCase || maxV);
+  const yStart = yS(initialCapital);
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+    y: PAD.top + (1 - p) * (H - PAD.top - PAD.bottom),
+    label: fmtCurrency(minV + p * range),
+  }));
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: H, display: "block" }}
+    >
+      <defs>
+        <linearGradient id="fanGrad99" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#5B8CFF" stopOpacity="0.08" />
+          <stop offset="100%" stopColor="#5B8CFF" stopOpacity="0.18" />
+        </linearGradient>
+        <linearGradient id="fanGrad95" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#5B8CFF" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="#5B8CFF" stopOpacity="0.30" />
+        </linearGradient>
+      </defs>
+      {/* Grid */}
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line
+            x1={PAD.left}
+            x2={W - PAD.right}
+            y1={t.y}
+            y2={t.y}
+            stroke="rgba(255,255,255,0.05)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+          />
+          <text
+            x={PAD.left - 6}
+            y={t.y + 4}
+            textAnchor="end"
+            fill="#4A5568"
+            fontSize="9"
+            fontFamily="monospace"
+          >
+            {t.label}
+          </text>
+        </g>
+      ))}
+      {/* 99% band (worst → best) */}
+      <polygon
+        points={`${x0},${yStart} ${x1},${yBest} ${x1},${yWorst}`}
+        fill="url(#fanGrad99)"
+      />
+      {/* 95% band (lower → upper) */}
+      <polygon
+        points={`${x0},${yStart} ${x1},${yUpper} ${x1},${yLower}`}
+        fill="url(#fanGrad95)"
+      />
+      {/* Median line */}
+      <line
+        x1={x0}
+        y1={yStart}
+        x2={x1}
+        y2={yMedian}
+        stroke="#5B8CFF"
+        strokeWidth="2"
+      />
+      {/* Break-even */}
+      <line
+        x1={PAD.left}
+        x2={W - PAD.right}
+        y1={yStart}
+        y2={yStart}
+        stroke="rgba(255,255,255,0.2)"
+        strokeWidth="1"
+        strokeDasharray="5 3"
+      />
+      {/* Labels at right edge */}
+      <text
+        x={x1 + 4}
+        y={yBest + 4}
+        fill="#34D399"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        Best
+      </text>
+      <text
+        x={x1 + 4}
+        y={yUpper + 4}
+        fill="#5B8CFF"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        P95
+      </text>
+      <text
+        x={x1 + 4}
+        y={yMedian + 4}
+        fill="#EEF2FF"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        P50
+      </text>
+      <text
+        x={x1 + 4}
+        y={yLower + 4}
+        fill="#FBBF24"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        P5
+      </text>
+      <text
+        x={x1 + 4}
+        y={yWorst + 4}
+        fill="#F87171"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        Worst
+      </text>
+    </svg>
+  );
+}
+
+// ─── Walk-Forward Bar Chart ───────────────────────────────────────────────────
+function WFAChart({ wfa }) {
+  if (!wfa?.segments || wfa.segments.length === 0)
+    return (
+      <div
+        style={{
+          height: 140,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#4A5568",
+          fontSize: 13,
+        }}
+      >
+        Walk-Forward data not available (requires 100+ candles)
+      </div>
+    );
+
+  const segs = wfa.segments;
+  const W = 500,
+    H = 140,
+    PAD = { top: 16, right: 16, bottom: 28, left: 64 };
+  const allVals = segs.flatMap((s) => [s.inSampleReturn, s.outOfSampleReturn]);
+  const minV = Math.min(0, ...allVals);
+  const maxV = Math.max(0, ...allVals);
+  const range = maxV - minV || 1;
+
+  const zeroY = PAD.top + (1 - (0 - minV) / range) * (H - PAD.top - PAD.bottom);
+  const barW = ((W - PAD.left - PAD.right) / segs.length) * 0.38;
+  const gap = (W - PAD.left - PAD.right) / segs.length;
+
+  const yS = (v) =>
+    PAD.top + (1 - (v - minV) / range) * (H - PAD.top - PAD.bottom);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: H, display: "block" }}
+    >
+      {/* Zero line */}
+      <line
+        x1={PAD.left}
+        x2={W - PAD.right}
+        y1={zeroY}
+        y2={zeroY}
+        stroke="rgba(255,255,255,0.2)"
+        strokeWidth="1"
+      />
+      {segs.map((seg, i) => {
+        const cx = PAD.left + i * gap + gap / 2;
+        // IS bar
+        const isH = Math.abs(yS(seg.inSampleReturn) - zeroY);
+        const isY = seg.inSampleReturn >= 0 ? yS(seg.inSampleReturn) : zeroY;
+        // OOS bar
+        const oosH = Math.abs(yS(seg.outOfSampleReturn) - zeroY);
+        const oosY =
+          seg.outOfSampleReturn >= 0 ? yS(seg.outOfSampleReturn) : zeroY;
+
+        return (
+          <g key={i}>
+            <rect
+              x={cx - barW - 1}
+              y={isY}
+              width={barW}
+              height={Math.max(1, isH)}
+              fill="#5B8CFF"
+              rx="2"
+              opacity="0.8"
+            />
+            <rect
+              x={cx + 1}
+              y={oosY}
+              width={barW}
+              height={Math.max(1, oosH)}
+              fill={seg.passed ? "#34D399" : "#F87171"}
+              rx="2"
+              opacity="0.8"
+            />
+            <text
+              x={cx}
+              y={H - 6}
+              textAnchor="middle"
+              fill="#4A5568"
+              fontSize="9"
+            >
+              W{seg.segmentIndex}
+            </text>
+          </g>
+        );
+      })}
+      {/* Y-axis labels */}
+      <text
+        x={PAD.left - 4}
+        y={PAD.top + 10}
+        textAnchor="end"
+        fill="#4A5568"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        {fmtPct(maxV, false)}
+      </text>
+      <text
+        x={PAD.left - 4}
+        y={H - PAD.bottom - 2}
+        textAnchor="end"
+        fill="#4A5568"
+        fontSize="9"
+        fontFamily="monospace"
+      >
+        {fmtPct(minV, false)}
+      </text>
+      {/* Legend */}
+      <rect x={PAD.left} y={4} width={10} height={6} fill="#5B8CFF" rx="1" />
+      <text x={PAD.left + 14} y={10} fill="#8B9EB5" fontSize="9">
+        In-Sample
+      </text>
+      <rect
+        x={PAD.left + 80}
+        y={4}
+        width={10}
+        height={6}
+        fill="#34D399"
+        rx="1"
+      />
+      <text x={PAD.left + 94} y={10} fill="#8B9EB5" fontSize="9">
+        Out-of-Sample
+      </text>
+    </svg>
+  );
+}
+
+// ─── Hurst Exponent Card ──────────────────────────────────────────────────────
+function HurstCard({ hurst }) {
+  if (!hurst) return null;
+  const H = Number(hurst.H);
+  const pct = Math.max(0, Math.min(100, H * 100));
+  let color, label, icon;
+  if (H < 0.45) {
+    color = "#5B8CFF";
+    label = "Mean-Reverting";
+    icon = "↩";
+  } else if (H < 0.55) {
+    color = "#FBBF24";
+    label = "Random Walk";
+    icon = "↔";
+  } else {
+    color = "#34D399";
+    label = "Trending";
+    icon = "↗";
+  }
+
+  return (
+    <div style={{ fontFamily: "monospace" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <span
+          style={{ fontSize: 36, fontWeight: 900, color, letterSpacing: -1 }}
+        >
+          {H.toFixed(3)}
+        </span>
+        <span style={{ fontSize: 18, color }}>{icon}</span>
+        <span
+          style={{ fontSize: 12, color: "#8B9EB5", fontFamily: "sans-serif" }}
+        >
+          {label}
+        </span>
+      </div>
+      {/* Spectrum bar */}
+      <div
+        style={{
+          position: "relative",
+          height: 6,
+          borderRadius: 4,
+          background:
+            "linear-gradient(90deg, #5B8CFF 0%, #FBBF24 50%, #34D399 100%)",
+          marginBottom: 8,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: -3,
+            left: `${pct}%`,
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            background: color,
+            border: "2px solid #0D1117",
+            transform: "translateX(-50%)",
+            boxShadow: `0 0 8px ${color}`,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 9,
+          color: "#4A5568",
+          marginBottom: 12,
+        }}
+      >
+        <span>0 — Mean Rev.</span>
+        <span>0.5 — Random</span>
+        <span>1 — Trending</span>
+      </div>
+      <p
+        style={{
+          fontSize: 11,
+          color: "#8B9EB5",
+          fontFamily: "sans-serif",
+          lineHeight: 1.5,
+          margin: 0,
+        }}
+      >
+        {hurst.interpretation || hurst.signal || "Hurst analysis complete."}
+      </p>
+    </div>
+  );
+}
+
+// ─── Overfitting Score Card ───────────────────────────────────────────────────
+function OverfitCard({ analysis }) {
+  if (!analysis) return null;
+  const score = analysis.overfitScore || 0;
+  const color = score >= 60 ? "#F87171" : score >= 30 ? "#FBBF24" : "#34D399";
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 32,
+            fontWeight: 900,
+            color,
+            fontFamily: "monospace",
+          }}
+        >
+          {score}
+        </span>
+        <span style={{ fontSize: 11, color: "#8B9EB5" }}>/ 100</span>
+        <span
+          style={{
+            padding: "2px 10px",
+            borderRadius: 20,
+            fontSize: 10,
+            fontWeight: 700,
+            background: color + "20",
+            color,
+          }}
+        >
+          {analysis.overfitDetected ? "OVERFIT RISK" : "CLEAN"}
+        </span>
+      </div>
+      {/* Score bar */}
+      <div
+        style={{
+          height: 5,
+          borderRadius: 3,
+          background: "rgba(255,255,255,0.08)",
+          marginBottom: 14,
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${score}%`,
+            borderRadius: 3,
+            background: color,
+            transition: "width 1s ease",
+          }}
+        />
+      </div>
+      <p
+        style={{
+          fontSize: 11,
+          color: "#8B9EB5",
+          marginBottom: 14,
+          lineHeight: 1.5,
+        }}
+      >
+        {analysis.recommendation}
+      </p>
+      {(analysis.warnings || []).map((w, i) => (
+        <div
+          key={i}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            marginBottom: 6,
+            background:
+              w.severity === "HIGH"
+                ? "rgba(248,113,113,0.08)"
+                : "rgba(251,191,36,0.08)",
+            borderLeft: `3px solid ${w.severity === "HIGH" ? "#F87171" : "#FBBF24"}`,
+          }}
+        >
+          <p
+            style={{
+              fontSize: 11,
+              color: w.severity === "HIGH" ? "#F87171" : "#FBBF24",
+              margin: 0,
+              fontWeight: 600,
+            }}
+          >
+            {w.severity}
+          </p>
+          <p style={{ fontSize: 11, color: "#8B9EB5", margin: 0 }}>
+            {w.message}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+function KPI({ label, value, color, sub, mono = true }) {
+  return (
+    <div
+      style={{
+        padding: "18px 20px",
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          color: "#4A5568",
+          textTransform: "uppercase",
+          letterSpacing: 1,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 24,
+          fontWeight: 900,
+          fontFamily: mono ? "monospace" : "inherit",
+          color: color || "#EEF2FF",
+          letterSpacing: -0.5,
+        }}
+      >
+        {value}
+      </span>
+      {sub && <span style={{ fontSize: 10, color: "#4A5568" }}>{sub}</span>}
+    </div>
+  );
+}
+
+// ─── Section wrapper ──────────────────────────────────────────────────────────
+function Section({ title, subtitle, badge, children }) {
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 18,
+        padding: "28px 28px",
+        marginBottom: 20,
+      }}
+    >
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "#EEF2FF",
+              margin: 0,
+            }}
+          >
+            {title}
+          </h2>
+          {badge && (
+            <span
+              style={{
+                padding: "2px 10px",
+                borderRadius: 20,
+                fontSize: 10,
+                fontWeight: 700,
+                background: badge.color + "20",
+                color: badge.color,
+              }}
+            >
+              {badge.text}
+            </span>
+          )}
+        </div>
+        {subtitle && (
+          <p style={{ fontSize: 12, color: "#4A5568", margin: "4px 0 0 0" }}>
+            {subtitle}
+          </p>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function AgentDetail({ params }) {
+  const [agent, setAgent] = useState(null);
+  const [triggers, setTriggers] = useState([]);
+  const [riskRules, setRiskRules] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [recentTrades, setRecentTrades] = useState([]);
+  const [backtest, setBacktest] = useState(null);
+  const [trustScore, setTrustScore] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [backtesting, setBacktesting] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+
+  useEffect(() => {
+    loadAgent();
+    loadTrustScore();
+  }, [params.id]);
+
+  const loadAgent = async () => {
+    try {
+      const res = await fetch(`/api/agents/${params.id}`);
+      if (!res.ok) throw new Error("Failed to load agent");
+      const data = await res.json();
+      setAgent(data.agent);
+      setTriggers(data.triggers || []);
+      setRiskRules(data.riskRules || []);
+      setPositions(data.positions || []);
+      setRecentTrades(data.recentTrades || []);
+      setBacktest(data.backtest || null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTrustScore = async () => {
+    try {
+      const res = await fetch(`/api/agent/trust-score?agentId=${params.id}`);
+      if (res.ok) {
+        const d = await res.json();
+        setTrustScore(d.trustScore);
+      }
+    } catch (_) {}
+  };
+
+  const toggleStatus = async () => {
+    const ns = agent.status === "active" ? "paused" : "active";
+    try {
+      const res = await fetch(`/api/agents/${params.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: ns }),
+      });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setAgent(d.agent);
+    } catch (_) {}
+  };
+
+  const deleteAgent = async () => {
+    if (!confirm("Delete this agent permanently?")) return;
+    try {
+      await fetch(`/api/agents/${params.id}`, { method: "DELETE" });
+      if (typeof window !== "undefined") {
+        window.location.href = "/agents";
+      }
+    } catch (_) {}
+  };
+
+  const runBacktest = async () => {
+    setBacktesting(true);
+    try {
+      const endDate = new Date().toISOString().split("T")[0];
+      const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const res = await fetch("/api/backtest/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: params.id,
+          startDate,
+          endDate,
+          initialCapital: 10000,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      await loadAgent();
+      // Reload trust score — it's computed from the new backtest results
+      await loadTrustScore();
+    } catch (_) {
+      alert("Backtest failed — check console.");
+    } finally {
+      setBacktesting(false);
+    }
+  };
+
+  const handleShare = async () => {
+    setShareLoading(true);
+    try {
+      const res = await fetch("/api/agents/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: params.id, action: "enable" }),
+      });
+      const data = await res.json();
+      if (data.url) setShareUrl(data.url);
+    } catch (e) {
+      console.error("Share failed:", e);
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const copyShareUrl = () => {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).catch(() => {});
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  };
+
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const totalPnL = positions.reduce(
+    (s, p) => s + parseFloat(p.unrealized_pnl || 0),
+    0,
+  );
+  const hasBacktest = !!backtest;
+  const bt = backtest || {};
+  const mc = bt.monteCarlo;
+  const wfa = bt.walkForward;
+  const hurst = bt.hurst;
+  const overfit = bt.overfitAnalysis;
+  const equity = bt.equity_curve || [];
+  const btTrades = bt.trades || [];
+  const initCap = bt.initial_capital || 10000;
+
+  if (loading)
+    return (
+      <div style={{ minHeight: "100vh", background: "#080B10" }}>
+        <AppNav />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "60vh",
+          }}
+        >
+          <div style={{ color: "#4A5568", fontSize: 14 }}>Loading agent…</div>
+        </div>
+      </div>
+    );
+
+  if (!agent)
+    return (
+      <div style={{ minHeight: "100vh", background: "#080B10" }}>
+        <AppNav />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "60vh",
+          }}
+        >
+          <div style={{ color: "#4A5568", fontSize: 14 }}>Agent not found.</div>
+        </div>
+      </div>
+    );
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#080B10" }}>
+      <AppNav />
+
+      <div
+        style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px 80px" }}
+      >
+        {/* ── Back + Header ─────────────────────────────────────────────────── */}
+        <a
+          href="/agents"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            color: "#4A5568",
+            fontSize: 13,
+            marginBottom: 24,
+            textDecoration: "none",
+            transition: "color 0.2s",
+          }}
+        >
+          <ArrowLeft size={16} />
+          Back to My Agents
+        </a>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 16,
+            marginBottom: 32,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 6,
+              }}
+            >
+              <h1
+                style={{
+                  fontSize: 26,
+                  fontWeight: 900,
+                  color: "#EEF2FF",
+                  margin: 0,
+                }}
+              >
+                {agent.name}
+              </h1>
+              <span
+                style={{
+                  padding: "3px 12px",
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background:
+                    agent.status === "active"
+                      ? "rgba(52,211,153,0.12)"
+                      : "rgba(251,191,36,0.12)",
+                  color: agent.status === "active" ? "#34D399" : "#FBBF24",
+                }}
+              >
+                {agent.status.toUpperCase()}
+              </span>
+            </div>
+            <p
+              style={{
+                fontSize: 13,
+                color: "#4A5568",
+                margin: 0,
+                maxWidth: 500,
+              }}
+            >
+              {agent.description}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {/* ── LIVE QUANT TERMINAL ── */}
+            <button
+              onClick={() => setShowTerminal(true)}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 10,
+                cursor: "pointer",
+                border: "1px solid rgba(91,140,255,0.45)",
+                background: "rgba(91,140,255,0.1)",
+                color: "#5B8CFF",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Terminal size={14} />
+              Live Quant Terminal
+            </button>
+
+            {/* ── Share — always visible ── */}
+            <button
+              onClick={handleShare}
+              disabled={shareLoading}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 10,
+                cursor: shareLoading ? "not-allowed" : "pointer",
+                border: "1px solid rgba(52,211,153,0.4)",
+                background: "rgba(52,211,153,0.08)",
+                color: "#34D399",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                opacity: shareLoading ? 0.6 : 1,
+              }}
+            >
+              <Award size={14} />
+              {shareLoading
+                ? "Generating…"
+                : shareUrl
+                  ? "Share Again"
+                  : "Share Strategy"}
+            </button>
+            <button
+              onClick={toggleStatus}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 10,
+                border: "1px solid",
+                borderColor:
+                  agent.status === "active"
+                    ? "rgba(251,191,36,0.3)"
+                    : "rgba(52,211,153,0.3)",
+                background:
+                  agent.status === "active"
+                    ? "rgba(251,191,36,0.08)"
+                    : "rgba(52,211,153,0.08)",
+                color: agent.status === "active" ? "#FBBF24" : "#34D399",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {agent.status === "active" ? (
+                <>
+                  <Pause size={15} />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play size={15} />
+                  Activate
+                </>
+              )}
+            </button>
+            <button
+              onClick={deleteAgent}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 10,
+                border: "1px solid rgba(248,113,113,0.3)",
+                background: "rgba(248,113,113,0.08)",
+                color: "#F87171",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Trash2 size={15} />
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {/* ── Share URL row ── */}
+        {shareUrl && (
+          <div
+            style={{
+              marginBottom: 24,
+              padding: "16px 20px",
+              borderRadius: 14,
+              background: "rgba(52,211,153,0.06)",
+              border: "1px solid rgba(52,211,153,0.2)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <Award size={16} color="#34D399" />
+            <span style={{ fontSize: 13, color: "#34D399", fontWeight: 700 }}>
+              Public link ready:
+            </span>
+            <div
+              style={{
+                flex: 1,
+                minWidth: 200,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                fontFamily: "monospace",
+                fontSize: 11,
+                color: "#8B9EB5",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {shareUrl}
+            </div>
+            <button
+              onClick={copyShareUrl}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                borderRadius: 8,
+                border: "1px solid rgba(52,211,153,0.3)",
+                background: "rgba(52,211,153,0.1)",
+                color: "#34D399",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              {shareCopied ? <Check size={13} /> : <Copy size={13} />}
+              {shareCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        )}
+
+        {/* ── Live Portfolio Summary ─────────────────────────────────────────── */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: 12,
+            marginBottom: 24,
+          }}
+        >
+          <KPI
+            label="Unrealised P&L"
+            value={fmtCurrency(totalPnL)}
+            color={returnColor(totalPnL)}
+          />
+          <KPI
+            label="Open Positions"
+            value={positions.length}
+            color="#EEF2FF"
+          />
+          <KPI
+            label="Total Trades"
+            value={recentTrades.length}
+            color="#EEF2FF"
+          />
+          {hasBacktest && (
+            <>
+              <KPI
+                label="Backtest Return"
+                value={fmtPct(bt.total_return)}
+                color={returnColor(bt.total_return)}
+              />
+              <KPI
+                label="Final Capital"
+                value={fmtCurrency(bt.final_capital)}
+                color={returnColor(bt.final_capital - initCap)}
+              />
+            </>
+          )}
+          {trustScore && (
+            <KPI
+              label="Trust Score"
+              value={`${trustScore.overall}/100`}
+              color={
+                trustScore.overall >= 80
+                  ? "#34D399"
+                  : trustScore.overall >= 60
+                    ? "#FBBF24"
+                    : "#F87171"
+              }
+              sub={trustScore.confidence + " CONFIDENCE"}
+            />
+          )}
+        </div>
+
+        {/* ── Strategy Trust Report (shown when backtest + trustScore ready) ── */}
+        {trustScore && hasBacktest && (
+          <div
+            style={{
+              marginBottom: 20,
+              padding: "20px 24px",
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.025)",
+              border: `1px solid ${
+                trustScore.overall >= 80
+                  ? "rgba(52,211,153,0.25)"
+                  : trustScore.overall >= 60
+                    ? "rgba(251,191,36,0.25)"
+                    : "rgba(248,113,113,0.25)"
+              }`,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              <p
+                style={{
+                  fontWeight: 700,
+                  color: "#EEF2FF",
+                  fontSize: 14,
+                  margin: 0,
+                }}
+              >
+                🔐 Strategy Trust Report
+              </p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(trustScore.badges || []).map((badge, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      padding: "2px 10px",
+                      borderRadius: 20,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "#EEF2FF",
+                    }}
+                  >
+                    {badge}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gap: 10,
+                marginBottom: trustScore.warnings?.length > 0 ? 14 : 0,
+              }}
+            >
+              <KPI
+                label="Performance"
+                value={`${trustScore.performanceScore}/100`}
+                color="#5B8CFF"
+                sub={trustScore.breakdown?.performance}
+              />
+              <KPI
+                label="Risk Score"
+                value={`${trustScore.riskScore}/100`}
+                color="#34D399"
+                sub={trustScore.breakdown?.risk}
+              />
+              <KPI
+                label="Stability"
+                value={`${Math.floor(trustScore.stabilityScore || 0)}/100`}
+                color="#8A7CFF"
+                sub={trustScore.breakdown?.stability}
+              />
+              <KPI
+                label="Overall"
+                value={`${trustScore.overall}/100`}
+                color={
+                  trustScore.overall >= 80
+                    ? "#34D399"
+                    : trustScore.overall >= 60
+                      ? "#FBBF24"
+                      : "#F87171"
+                }
+                sub={trustScore.verified ? "✅ VERIFIED" : "⚠️ UNVERIFIED"}
+              />
+            </div>
+            {trustScore.warnings?.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {trustScore.warnings.map((w, i) => (
+                  <p
+                    key={i}
+                    style={{ fontSize: 11, color: "#F59E0B", margin: 0 }}
+                  >
+                    {w}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ STRATEGY DIAGNOSTICS ══════════════════════════════════════════════ */}
+        {hasBacktest ? (
+          <>
+            {/* ── Institutional KPI Grid ─────────────────────────────────────── */}
+            <Section
+              title="📊 Institutional Performance Metrics"
+              subtitle={`Backtest period: ${bt.total_trades} trades · Initial capital: ${fmtCurrency(initCap)}`}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                <KPI
+                  label="Total Return"
+                  value={fmtPct(bt.total_return)}
+                  color={returnColor(bt.total_return)}
+                  sub="vs initial capital"
+                />
+                <KPI
+                  label="Sharpe Ratio"
+                  value={fmtNum(bt.sharpe_ratio, 2)}
+                  color={sharpeColor(bt.sharpe_ratio)}
+                  sub=">1.5 = institutional"
+                />
+                <KPI
+                  label="Max Drawdown"
+                  value={fmtPct(bt.max_drawdown, false)}
+                  color={drawdownColor(bt.max_drawdown)}
+                  sub="peak-to-trough"
+                />
+                <KPI
+                  label="Win Rate"
+                  value={fmtPct(bt.win_rate, false)}
+                  color={winRateColor(bt.win_rate)}
+                  sub="% of closed trades"
+                />
+                <KPI
+                  label="Total Trades"
+                  value={bt.total_trades}
+                  color="#8B9EB5"
+                  sub="30+ = statistically valid"
+                />
+                {mc && (
+                  <>
+                    <KPI
+                      label="Prob. of Ruin"
+                      value={fmtNum(mc.probabilityOfRuin, 1) + "%"}
+                      color={
+                        mc.probabilityOfRuin > 15
+                          ? "#F87171"
+                          : mc.probabilityOfRuin > 5
+                            ? "#FBBF24"
+                            : "#34D399"
+                      }
+                      sub="<5% = low risk"
+                    />
+                    <KPI
+                      label="Expected Return"
+                      value={fmtPct(mc.expectedReturn)}
+                      color={returnColor(mc.expectedReturn)}
+                      sub="MC median (1,000 paths)"
+                    />
+                    <KPI
+                      label="DD P95"
+                      value={
+                        fmtNum(mc.confidenceIntervals?.maxDrawdown?.upper, 1) +
+                        "%"
+                      }
+                      color="#F87171"
+                      sub="worst 5% of scenarios"
+                    />
+                  </>
+                )}
+              </div>
+            </Section>
+
+            {/* ── Equity Curve ───────────────────────────────────────────────── */}
+            <Section
+              title="📈 Equity Curve"
+              subtitle="Entry markers (▲) = BUY · Exit markers (▼) = SELL · Dashed = break-even"
+            >
+              <EquityChart
+                equityCurve={equity}
+                trades={btTrades}
+                initialCapital={initCap}
+              />
+            </Section>
+
+            {/* ── Monte Carlo Fan Chart ──────────────────────────────────────── */}
+            <Section
+              title="🎲 Monte Carlo Simulation"
+              subtitle="1,000 bootstrap paths · Shaded bands = 95% and 99% confidence intervals"
+              badge={
+                mc
+                  ? {
+                      text: `P(Ruin) = ${fmtNum(mc.probabilityOfRuin, 1)}%`,
+                      color:
+                        mc.probabilityOfRuin > 15
+                          ? "#F87171"
+                          : mc.probabilityOfRuin > 5
+                            ? "#FBBF24"
+                            : "#34D399",
+                    }
+                  : null
+              }
+            >
+              <MonteCarloChart mc={mc} initialCapital={initCap} />
+              {mc && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                    gap: 10,
+                    marginTop: 18,
+                  }}
+                >
+                  <KPI
+                    label="Best Case"
+                    value={fmtCurrency(mc.bestCase)}
+                    color="#34D399"
+                  />
+                  <KPI
+                    label="P95 Outcome"
+                    value={fmtCurrency(
+                      mc.confidenceIntervals?.finalCapital?.upper,
+                    )}
+                    color="#5B8CFF"
+                  />
+                  <KPI
+                    label="Median"
+                    value={fmtCurrency(mc.median)}
+                    color="#EEF2FF"
+                  />
+                  <KPI
+                    label="P5 Outcome"
+                    value={fmtCurrency(
+                      mc.confidenceIntervals?.finalCapital?.lower,
+                    )}
+                    color="#FBBF24"
+                  />
+                  <KPI
+                    label="Worst Case"
+                    value={fmtCurrency(mc.worstCase)}
+                    color="#F87171"
+                  />
+                </div>
+              )}
+            </Section>
+
+            {/* ── Hurst + WFA side-by-side ───────────────────────────────────── */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: 20,
+                marginBottom: 20,
+              }}
+            >
+              <Section
+                title="〰 Hurst Exponent"
+                subtitle="Measures the mathematical regime of the asset"
+              >
+                <HurstCard hurst={hurst} />
+              </Section>
+              <Section
+                title="🔄 Walk-Forward Analysis"
+                subtitle="Blue = In-Sample · Green/Red = Out-of-Sample pass/fail"
+                badge={
+                  wfa
+                    ? {
+                        text: wfa.passedValidation ? "PASSED" : "FAILED",
+                        color: wfa.passedValidation ? "#34D399" : "#F87171",
+                      }
+                    : null
+                }
+              >
+                {wfa && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: 8,
+                        marginBottom: 14,
+                      }}
+                    >
+                      <KPI
+                        label="IS Return"
+                        value={fmtPct(wfa.averageInSampleReturn)}
+                        color="#5B8CFF"
+                      />
+                      <KPI
+                        label="OOS Return"
+                        value={fmtPct(wfa.averageOutOfSampleReturn)}
+                        color={returnColor(wfa.averageOutOfSampleReturn)}
+                      />
+                      <KPI
+                        label="Degradation"
+                        value={fmtNum(wfa.degradationPercent, 1) + "%"}
+                        color={
+                          wfa.degradationPercent > 50 ? "#F87171" : "#34D399"
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+                <WFAChart wfa={wfa} />
+              </Section>
+            </div>
+
+            {/* ── Overfitting Analysis ───────────────────────────────────────── */}
+            <Section
+              title="🔬 Overfitting Detection"
+              subtitle="Flags curve-fitting via Win Rate, Profit Factor, Sharpe, and sample size heuristics"
+              badge={
+                overfit
+                  ? {
+                      text: overfit.overfitDetected ? "HIGH RISK" : "LOW RISK",
+                      color: overfit.overfitDetected ? "#F87171" : "#34D399",
+                    }
+                  : null
+              }
+            >
+              <OverfitCard analysis={overfit} />
+            </Section>
+          </>
+        ) : (
+          /* ── No Backtest ──────────────────────────────────────────────────── */
+          <Section title="📊 Strategy Diagnostics">
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <BarChart2
+                size={48}
+                color="#1F2937"
+                style={{ marginBottom: 16 }}
+              />
+              <p style={{ color: "#4A5568", fontSize: 14, marginBottom: 20 }}>
+                No backtest results yet. Run a backtest to unlock the full
+                <br />
+                diagnostic suite: equity curve, Monte Carlo, Walk-Forward &amp;
+                Hurst analysis.
+              </p>
+              <button
+                onClick={runBacktest}
+                disabled={backtesting}
+                style={{
+                  padding: "12px 28px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "linear-gradient(135deg, #5B8CFF, #818CF8)",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  opacity: backtesting ? 0.6 : 1,
+                }}
+              >
+                {backtesting ? (
+                  <>
+                    <RefreshCw size={16} />
+                    Running…
+                  </>
+                ) : (
+                  <>
+                    <Activity size={16} />
+                    Run Backtest (1 Year)
+                  </>
+                )}
+              </button>
+            </div>
+          </Section>
+        )}
+
+        {/* ── Strategy + Triggers + Risk Rules ──────────────────────────────── */}
+        <Section title="📋 Strategy Configuration">
+          <p
+            style={{
+              color: "#8B9EB5",
+              fontSize: 13,
+              lineHeight: 1.7,
+              marginBottom: 20,
+            }}
+          >
+            {agent.natural_language_prompt}
+          </p>
+          {hasBacktest && (
+            <button
+              onClick={runBacktest}
+              disabled={backtesting}
+              style={{
+                padding: "8px 18px",
+                borderRadius: 10,
+                border: "1px solid rgba(91,140,255,0.3)",
+                background: "rgba(91,140,255,0.08)",
+                color: "#5B8CFF",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                opacity: backtesting ? 0.6 : 1,
+              }}
+            >
+              <RefreshCw size={14} />
+              {backtesting ? "Re-running…" : "Re-run Backtest"}
+            </button>
+          )}
+        </Section>
+
+        {/* Triggers */}
+        {triggers.length > 0 && (
+          <Section title="⚡ Active Triggers">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {triggers.map((t) => (
+                <div
+                  key={t.id}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <p
+                      style={{
+                        fontWeight: 600,
+                        color: "#EEF2FF",
+                        fontSize: 13,
+                        margin: 0,
+                      }}
+                    >
+                      {t.symbol}
+                    </p>
+                    <p style={{ fontSize: 11, color: "#4A5568", margin: 0 }}>
+                      {t.trigger_type.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                  <span
+                    style={{
+                      padding: "2px 10px",
+                      borderRadius: 20,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      background: t.is_active
+                        ? "rgba(52,211,153,0.12)"
+                        : "rgba(75,85,99,0.12)",
+                      color: t.is_active ? "#34D399" : "#6B7280",
+                    }}
+                  >
+                    {t.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {/* Risk Rules */}
+        {riskRules.length > 0 && (
+          <Section title="🛡️ Risk Management Rules">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {riskRules.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 10,
+                    background: "rgba(251,191,36,0.04)",
+                    border: "1px solid rgba(251,191,36,0.12)",
+                  }}
+                >
+                  <p
+                    style={{
+                      fontWeight: 700,
+                      color: "#FBBF24",
+                      fontSize: 12,
+                      margin: "0 0 4px",
+                    }}
+                  >
+                    {r.rule_type.replace(/_/g, " ").toUpperCase()}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: "#8B9EB5",
+                      margin: 0,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {JSON.stringify(r.parameters)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {/* Positions */}
+        {positions.length > 0 && (
+          <Section title="📂 Open Positions">
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 13,
+                }}
+              >
+                <thead>
+                  <tr>
+                    {[
+                      "Symbol",
+                      "Qty",
+                      "Avg Price",
+                      "Current",
+                      "Unrealised P&L",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        style={{
+                          textAlign: h === "Symbol" ? "left" : "right",
+                          padding: "8px 12px",
+                          color: "#4A5568",
+                          fontWeight: 600,
+                          fontSize: 11,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          borderBottom: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((p) => {
+                    const pnl = parseFloat(p.unrealized_pnl || 0);
+                    return (
+                      <tr
+                        key={p.id}
+                        style={{
+                          borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            color: "#EEF2FF",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {p.symbol}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            textAlign: "right",
+                            color: "#8B9EB5",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {parseFloat(p.quantity).toFixed(4)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            textAlign: "right",
+                            color: "#8B9EB5",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {fmtCurrency(p.average_price)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            textAlign: "right",
+                            color: "#8B9EB5",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {fmtCurrency(p.current_price || p.average_price)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontFamily: "monospace",
+                            color: pnl >= 0 ? "#34D399" : "#F87171",
+                          }}
+                        >
+                          {fmtCurrency(pnl)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        )}
+
+        {/* Recent Trades */}
+        {recentTrades.length > 0 && (
+          <Section title="📜 Recent Trades">
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 13,
+                }}
+              >
+                <thead>
+                  <tr>
+                    {["Date", "Type", "Symbol", "Qty", "Price", "Status"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign:
+                              h === "Date" ||
+                              h === "Type" ||
+                              h === "Symbol" ||
+                              h === "Status"
+                                ? "left"
+                                : "right",
+                            padding: "8px 12px",
+                            color: "#4A5568",
+                            fontWeight: 600,
+                            fontSize: 11,
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
+                            borderBottom: "1px solid rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTrades.map((t) => (
+                    <tr
+                      key={t.id}
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          color: "#4A5568",
+                          fontSize: 11,
+                        }}
+                      >
+                        {new Date(t.executed_at).toLocaleString()}
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background:
+                              t.trade_type === "buy"
+                                ? "rgba(52,211,153,0.12)"
+                                : "rgba(248,113,113,0.12)",
+                            color:
+                              t.trade_type === "buy" ? "#34D399" : "#F87171",
+                          }}
+                        >
+                          {t.trade_type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          color: "#EEF2FF",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {t.symbol}
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          textAlign: "right",
+                          color: "#8B9EB5",
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {parseFloat(t.quantity).toFixed(4)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          textAlign: "right",
+                          color: "#8B9EB5",
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {fmtCurrency(t.price)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "10px 12px",
+                          color: "#4A5568",
+                          fontSize: 11,
+                        }}
+                      >
+                        {t.status}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        )}
+
+        {/* ── AGENT TERMINAL SLIDE-OVER ── */}
+        {showTerminal && agent && (
+          <AgentTerminal
+            agentId={Number(params.id)}
+            agentName={agent.name}
+            agentData={agent}
+            onClose={() => setShowTerminal(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
