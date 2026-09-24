@@ -1,0 +1,69 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { WifiOff, Wifi } from "lucide-react";
+
+export default function OfflineDetector() {
+  const [isOnline, setIsOnline] = useState(true);
+  const [showBanner, setShowBanner] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowBanner(true);
+      setTimeout(() => setShowBanner(false), 3000);
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setShowBanner(true);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    setIsOnline(navigator.onLine);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  if (!showBanner) return null;
+
+  return (
+    <div
+      className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
+        showBanner ? "translate-y-0 opacity-100" : "-translate-y-20 opacity-0"
+      }`}
+    >
+      <div
+        className={`px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 ${
+          isOnline
+            ? "bg-gradient-to-r from-emerald-500 to-green-600"
+            : "bg-gradient-to-r from-red-500 to-orange-600"
+        }`}
+      >
+        {isOnline ? (
+          <>
+            <Wifi className="text-white" size={20} />
+            <span className="text-white font-semibold">
+              Back online - syncing data
+            </span>
+          </>
+        ) : (
+          <>
+            <WifiOff className="text-white" size={20} />
+            <span className="text-white font-semibold">
+              You're offline - using cached data
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
