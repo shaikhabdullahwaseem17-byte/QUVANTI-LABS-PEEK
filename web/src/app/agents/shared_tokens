@@ -1,0 +1,806 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Shield,
+  Award,
+  BarChart2,
+  Copy,
+  Check,
+  ExternalLink,
+  AlertCircle,
+  Activity,
+} from "lucide-react";
+
+/* ─── Helpers ──────────────────────────────────────────────────────────── */
+function fmtCurrency(v) {
+  const n = Number(v);
+  if (isNaN(n)) return "$—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  }).format(n);
+}
+function fmtPct(v, showSign = true) {
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  return (showSign && n > 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+function fmtNum(v, d = 2) {
+  const n = Number(v);
+  return isNaN(n) ? "—" : n.toFixed(d);
+}
+function sharpeColor(v) {
+  const n = Number(v);
+  if (n >= 1.5) return "#34D399";
+  if (n >= 0.8) return "#FBBF24";
+  return "#F87171";
+}
+function returnColor(v) {
+  return Number(v) >= 0 ? "#34D399" : "#F87171";
+}
+
+/* ─── Equity Chart (pure SVG, no deps) ────────────────────────────────── */
+function EquityChart({
+  equityCurve = [],
+  trades = [],
+  initialCapital = 10000,
+}) {
+  const W = 700,
+    H = 200,
+    PAD = { top: 14, right: 14, bottom: 28, left: 56 };
+  const data = equityCurve.slice(0, 250);
+  if (data.length < 2) {
+    return (
+      <div
+        style={{
+          height: H,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#4A5568",
+          fontSize: 13,
+        }}
+      >
+        Equity data not available
+      </div>
+    );
+  }
+  const vals = data.map((d) => d.equity || d);
+  const minV = Math.min(...vals),
+    maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const xS = (i) =>
+    PAD.left + (i / (data.length - 1)) * (W - PAD.left - PAD.right);
+  const yS = (v) =>
+    PAD.top + (1 - (v - minV) / range) * (H - PAD.top - PAD.bottom);
+  const linePath = data
+    .map(
+      (d, i) =>
+        `${i === 0 ? "M" : "L"}${xS(i).toFixed(1)},${yS(d.equity || d).toFixed(1)}`,
+    )
+    .join(" ");
+  const areaPath =
+    linePath +
+    ` L${xS(data.length - 1).toFixed(1)},${(H - PAD.bottom).toFixed(1)} L${xS(0).toFixed(1)},${(H - PAD.bottom).toFixed(1)} Z`;
+  const isProfit = vals[vals.length - 1] >= initialCapital;
+  const lineColor = isProfit ? "#34D399" : "#F87171";
+  const yTicks = [0, 0.5, 1].map((p) => ({
+    y: PAD.top + (1 - p) * (H - PAD.top - PAD.bottom),
+    label: fmtCurrency(minV + p * range),
+  }));
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: H, display: "block" }}
+    >
+      <defs>
+        <linearGradient id="sg1" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={lineColor} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={lineColor} stopOpacity="0.01" />
+        </linearGradient>
+      </defs>
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line
+            x1={PAD.left}
+            x2={W - PAD.right}
+            y1={t.y}
+            y2={t.y}
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="1"
+            strokeDasharray="4 4"
+          />
+          <text
+            x={PAD.left - 6}
+            y={t.y + 4}
+            textAnchor="end"
+            fill="#4A5568"
+            fontSize="9"
+            fontFamily="monospace"
+          >
+            {t.label}
+          </text>
+        </g>
+      ))}
+      <line
+        x1={PAD.left}
+        x2={W - PAD.right}
+        y1={yS(initialCapital)}
+        y2={yS(initialCapital)}
+        stroke="rgba(255,255,255,0.18)"
+        strokeWidth="1"
+        strokeDasharray="6 3"
+      />
+      <path d={areaPath} fill="url(#sg1)" />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={lineColor}
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/* ─── KPI Tile ─────────────────────────────────────────────────────────── */
+function KPITile({ label, value, color, sub }) {
+  return (
+    <div
+      style={{
+        padding: "16px 18px",
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 14,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          color: "#4A5568",
+          textTransform: "uppercase",
+          letterSpacing: 1,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 900,
+          fontFamily: "monospace",
+          color: color || "#EEF2FF",
+          letterSpacing: -0.5,
+        }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div style={{ fontSize: 10, color: "#4A5568", marginTop: 4 }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Share Button ─────────────────────────────────────────────────────── */
+function ShareCopy({ url }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(url).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button
+      onClick={copy}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "10px 18px",
+        borderRadius: 10,
+        border: "1px solid rgba(91,140,255,0.3)",
+        background: "rgba(91,140,255,0.08)",
+        color: "#5B8CFF",
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      {copied ? <Check size={15} /> : <Copy size={15} />}
+      {copied ? "Copied!" : "Copy Link"}
+    </button>
+  );
+}
+
+/* ─── Main ─────────────────────────────────────────────────────────────── */
+export default function SharedAgentPage({ params }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setUrl(window.location.href);
+    load();
+  }, [params.token]);
+
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/agents/share?token=${params.token}`);
+      if (!res.ok)
+        throw new Error(
+          res.status === 404
+            ? "This strategy link has expired or doesn't exist."
+            : "Failed to load strategy.",
+        );
+      const json = await res.json();
+      setData(json);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Loading ── */
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#080B10",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              border: "3px solid rgba(91,140,255,0.15)",
+              borderTopColor: "#5B8CFF",
+              animation: "spin 0.9s linear infinite",
+              margin: "0 auto 16px",
+            }}
+          />
+          <p style={{ color: "#4A5568", fontSize: 14 }}>Loading strategy…</p>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  /* ── Error ── */
+  if (error || !data) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#080B10",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+        }}
+      >
+        <div style={{ maxWidth: 420, textAlign: "center" }}>
+          <AlertCircle size={48} color="#F87171" style={{ marginBottom: 16 }} />
+          <h1
+            style={{
+              color: "#EEF2FF",
+              fontSize: 22,
+              fontWeight: 800,
+              marginBottom: 8,
+            }}
+          >
+            Strategy Not Found
+          </h1>
+          <p
+            style={{
+              color: "#4A5568",
+              fontSize: 14,
+              lineHeight: 1.6,
+              marginBottom: 24,
+            }}
+          >
+            {error ||
+              "This link may have expired or sharing may have been disabled by the owner."}
+          </p>
+          <a
+            href="/"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 22px",
+              borderRadius: 12,
+              background: "linear-gradient(135deg,#5B8CFF,#8A7CFF)",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 14,
+              textDecoration: "none",
+            }}
+          >
+            Go to Quvanti Labs
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  const { agent, backtest, sharedBy } = data;
+  const bt = backtest || {};
+  const equity = bt.equity_curve || [];
+  const btTrades = bt.trades || [];
+  const initCap = bt.initial_capital || 10000;
+  const sharpe = Number(bt.sharpe_ratio);
+  const isElite = sharpe >= 1.5;
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#080B10",
+        color: "#EEF2FF",
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      {/* ── Ambient glow ── */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          pointerEvents: "none",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: 500,
+            height: 500,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle, rgba(91,140,255,0.06) 0%, transparent 70%)",
+            filter: "blur(60px)",
+          }}
+        />
+        {isElite && (
+          <div
+            style={{
+              position: "absolute",
+              top: 80,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 600,
+              height: 200,
+              background:
+                "radial-gradient(ellipse, rgba(52,211,153,0.05) 0%, transparent 70%)",
+              filter: "blur(40px)",
+            }}
+          />
+        )}
+      </div>
+
+      <div
+        style={{
+          maxWidth: 860,
+          margin: "0 auto",
+          padding: "40px 20px 80px",
+          position: "relative",
+        }}
+      >
+        {/* ── Header ── */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 32,
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <a
+            href="/"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              textDecoration: "none",
+            }}
+          >
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: "linear-gradient(135deg,#5B8CFF,#8A7CFF)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Activity size={16} color="#fff" />
+            </div>
+            <span
+              style={{
+                fontWeight: 900,
+                fontSize: 18,
+                color: "#EEF2FF",
+                letterSpacing: -0.5,
+              }}
+            >
+              Quvanti Labs
+            </span>
+          </a>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <ShareCopy url={url} />
+            <a
+              href="/account/signup"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "10px 18px",
+                borderRadius: 10,
+                background: "linear-gradient(135deg,#5B8CFF,#8A7CFF)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              Build Your Own <ExternalLink size={13} />
+            </a>
+          </div>
+        </div>
+
+        {/* ── Elite badge ── */}
+        {isElite && (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 14px",
+              borderRadius: 20,
+              background: "rgba(52,211,153,0.12)",
+              border: "1px solid rgba(52,211,153,0.25)",
+              marginBottom: 20,
+            }}
+          >
+            <Award size={13} color="#34D399" />
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                color: "#34D399",
+                letterSpacing: 1,
+                textTransform: "uppercase",
+              }}
+            >
+              Institutional Grade · Sharpe {sharpe.toFixed(2)}
+            </span>
+          </div>
+        )}
+
+        {/* ── Agent header card ── */}
+        <div
+          style={{
+            padding: "28px 32px",
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 20,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  fontSize: 28,
+                  fontWeight: 900,
+                  margin: 0,
+                  letterSpacing: -0.8,
+                }}
+              >
+                {agent.name}
+              </h1>
+              <p
+                style={{
+                  color: "#8B9EB5",
+                  fontSize: 13,
+                  marginTop: 6,
+                  maxWidth: 520,
+                  lineHeight: 1.6,
+                }}
+              >
+                {agent.description}
+              </p>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 11, color: "#4A5568" }}>Shared by</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#8B9EB5" }}>
+                {sharedBy || "Anonymous"}
+              </span>
+            </div>
+          </div>
+          {/* Strategy prompt */}
+          <div
+            style={{
+              padding: "14px 18px",
+              borderRadius: 12,
+              background: "rgba(0,0,0,0.3)",
+              border: "1px solid rgba(255,255,255,0.05)",
+              fontStyle: "italic",
+              color: "#8B9EB5",
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
+            "{agent.natural_language_prompt}"
+          </div>
+        </div>
+
+        {/* ── KPI grid ── */}
+        {bt.total_return !== undefined && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 12,
+              marginBottom: 20,
+            }}
+          >
+            <KPITile
+              label="Total Return"
+              value={fmtPct(bt.total_return)}
+              color={returnColor(bt.total_return)}
+              sub={`${bt.total_trades} trades`}
+            />
+            <KPITile
+              label="Sharpe Ratio"
+              value={fmtNum(bt.sharpe_ratio, 2)}
+              color={sharpeColor(bt.sharpe_ratio)}
+              sub="Risk-adjusted"
+            />
+            <KPITile
+              label="Max Drawdown"
+              value={fmtPct(bt.max_drawdown, false)}
+              color="#FBBF24"
+              sub="Peak-to-trough"
+            />
+            <KPITile
+              label="Win Rate"
+              value={fmtPct(bt.win_rate, false)}
+              color={bt.win_rate >= 50 ? "#34D399" : "#F87171"}
+              sub="Closed trades"
+            />
+            <KPITile
+              label="Final Capital"
+              value={fmtCurrency(bt.final_capital)}
+              color={returnColor(bt.final_capital - initCap)}
+              sub={`From ${fmtCurrency(initCap)}`}
+            />
+          </div>
+        )}
+
+        {/* ── Equity curve ── */}
+        {equity.length > 1 && (
+          <div
+            style={{
+              padding: "24px 24px 16px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 18,
+              marginBottom: 20,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
+              <TrendingUp size={16} color="#5B8CFF" />
+              <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+                Equity Curve
+              </h2>
+              <span
+                style={{ fontSize: 11, color: "#4A5568", marginLeft: "auto" }}
+              >
+                Backtest period · {bt.total_trades} trades
+              </span>
+            </div>
+            <EquityChart
+              equityCurve={equity}
+              trades={btTrades}
+              initialCapital={initCap}
+            />
+          </div>
+        )}
+
+        {/* ── Monte Carlo summary ── */}
+        {bt.monteCarlo && (
+          <div
+            style={{
+              padding: "22px 24px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 18,
+              marginBottom: 20,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
+              <Shield size={16} color="#8A7CFF" />
+              <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+                Risk Analysis (1,000 Monte Carlo Paths)
+              </h2>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <KPITile
+                label="Probability of Ruin"
+                value={fmtNum(bt.monteCarlo.probabilityOfRuin, 1) + "%"}
+                color={
+                  bt.monteCarlo.probabilityOfRuin > 15
+                    ? "#F87171"
+                    : bt.monteCarlo.probabilityOfRuin > 5
+                      ? "#FBBF24"
+                      : "#34D399"
+                }
+                sub="<5% = safe"
+              />
+              <KPITile
+                label="Expected Return"
+                value={fmtPct(bt.monteCarlo.expectedReturn)}
+                color={returnColor(bt.monteCarlo.expectedReturn)}
+                sub="Median path"
+              />
+              <KPITile
+                label="Best Case"
+                value={fmtCurrency(bt.monteCarlo.bestCase)}
+                color="#34D399"
+              />
+              <KPITile
+                label="Worst Case"
+                value={fmtCurrency(bt.monteCarlo.worstCase)}
+                color="#F87171"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ── CTA ── */}
+        <div
+          style={{
+            padding: "32px",
+            background:
+              "linear-gradient(135deg, rgba(91,140,255,0.08) 0%, rgba(138,124,255,0.08) 100%)",
+            border: "1px solid rgba(91,140,255,0.2)",
+            borderRadius: 20,
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8 }}>
+            Build Your Own AI Trading Agent
+          </div>
+          <p
+            style={{
+              color: "#8B9EB5",
+              fontSize: 14,
+              lineHeight: 1.6,
+              maxWidth: 480,
+              margin: "0 auto 24px",
+            }}
+          >
+            Describe any strategy in plain English. Quvanti Labs converts it to
+            a fully backtested, quantitatively validated trading agent in under
+            60 seconds.
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <a
+              href="/account/signup"
+              style={{
+                padding: "12px 28px",
+                borderRadius: 12,
+                background: "linear-gradient(135deg,#5B8CFF,#8A7CFF)",
+                color: "#fff",
+                fontWeight: 800,
+                fontSize: 15,
+                textDecoration: "none",
+                boxShadow: "0 4px 20px rgba(91,140,255,0.3)",
+              }}
+            >
+              Start Free — No Card Required
+            </a>
+            <a
+              href="/demo"
+              style={{
+                padding: "12px 24px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "#8B9EB5",
+                fontWeight: 600,
+                fontSize: 14,
+                textDecoration: "none",
+              }}
+            >
+              See Demo
+            </a>
+          </div>
+        </div>
+
+        {/* ── Disclaimer ── */}
+        <p
+          style={{
+            marginTop: 28,
+            fontSize: 11,
+            color: "#374151",
+            textAlign: "center",
+            lineHeight: 1.6,
+            maxWidth: 600,
+            margin: "28px auto 0",
+          }}
+        >
+          ⚠ Past backtest performance is not indicative of future results. This
+          is not financial advice. All trading involves risk of loss.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
+
