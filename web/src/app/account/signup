@@ -1,0 +1,304 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import useAuth from "@/utils/useAuth";
+import { AlertCircle, ArrowLeft, Eye, EyeOff, Zap } from "lucide-react";
+import OnboardingModal from "@/components/OnboardingModal";
+import InternalLayout from "@/components/InternalLayout";
+
+function MainComponent() {
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const { signUpWithCredentials } = useAuth();
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const completed = localStorage.getItem("quvanti_onboarding_completed");
+      if (!completed) {
+        const timer = setTimeout(() => setShowOnboarding(true), 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    if (!email || !password) {
+      setError("Please fill in all fields");
+      setLoading(false);
+      return;
+    }
+    if (!agreedToTerms) {
+      setError(
+        "You must agree to the Terms & Conditions and Privacy Policy to continue",
+      );
+      setLoading(false);
+      return;
+    }
+    try {
+      await signUpWithCredentials({
+        email,
+        password,
+        callbackUrl: "/",
+        redirect: true,
+      });
+    } catch (err) {
+      const errorMessages = {
+        OAuthSignin: "Couldn't start sign-up. Please try again.",
+        OAuthCallback: "Sign-up failed after redirecting. Please try again.",
+        EmailCreateAccount:
+          "This email can't be used. It may already be registered.",
+        Callback: "Something went wrong during sign-up. Please try again.",
+        CredentialsSignin:
+          "Invalid email or password. If you already have an account, try signing in instead.",
+        AccessDenied: "You don't have permission to sign up.",
+        Configuration:
+          "Sign-up isn't working right now. Please try again later.",
+      };
+      setError(
+        errorMessages[err.message] || "Something went wrong. Please try again.",
+      );
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {showOnboarding && (
+        <OnboardingModal onClose={() => setShowOnboarding(false)} />
+      )}
+      <InternalLayout>
+        {/* Back Button */}
+        <button
+          onClick={() => window.history.back()}
+          className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium text-[#8B9EB5] hover:text-white transition-all"
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <ArrowLeft size={16} />
+          Go Back
+        </button>
+
+        <div className="flex min-h-screen w-full items-center justify-center p-4 py-20">
+          <div className="w-full max-w-md">
+            {/* Brand */}
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center gap-2 mb-3">
+                <img
+                  src="https://ucarecdn.com/d39e423f-56fe-46e4-b20b-04ba0efd4bdc/-/format/auto/"
+                  alt="Quvanti"
+                  className="w-9 h-9 rounded-full border border-white/10"
+                />
+                <span className="text-white font-bold text-lg">
+                  Quvanti Labs
+                </span>
+              </div>
+              <h1 className="text-3xl font-black text-white mb-1 no-breathe">
+                Create Account
+              </h1>
+              <p className="text-[#8B9EB5] text-sm">
+                Join the sovereign AI trading terminal
+              </p>
+            </div>
+
+            {/* Glass Card */}
+            <form
+              noValidate
+              onSubmit={onSubmit}
+              className="rounded-2xl p-8"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                backdropFilter: "blur(24px)",
+                boxShadow:
+                  "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+              }}
+            >
+              <div className="space-y-5">
+                {/* Email */}
+                <div>
+                  <label className="block text-[12px] font-semibold text-[#8B9EB5] uppercase tracking-widest mb-2">
+                    Email
+                  </label>
+                  <div
+                    className="rounded-xl px-4 py-3"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <input
+                      required
+                      name="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      className="w-full bg-transparent text-white text-[15px] outline-none placeholder-[#4A5568]"
+                    />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label className="block text-[12px] font-semibold text-[#8B9EB5] uppercase tracking-widest mb-2">
+                    Password
+                  </label>
+                  <div
+                    className="rounded-xl px-4 py-3 flex items-center gap-2"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <input
+                      required
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Choose a password"
+                      className="flex-1 bg-transparent text-white text-[15px] outline-none placeholder-[#4A5568]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-[#4A5568] hover:text-[#8B9EB5] transition-colors p-1"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Terms Checkbox */}
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(91,140,255,0.06)",
+                    border: "1px solid rgba(91,140,255,0.2)",
+                  }}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agreedToTerms}
+                      onChange={(e) => setAgreedToTerms(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 rounded border border-white/20 bg-transparent cursor-pointer accent-[#5B8CFF]"
+                      required
+                    />
+                    <span className="text-[13px] text-[#C8D6EF] leading-relaxed">
+                      I agree to the{" "}
+                      <a
+                        href="/terms"
+                        target="_blank"
+                        className="text-[#5B8CFF] hover:text-[#8A7CFF] font-semibold transition-colors"
+                      >
+                        Terms & Conditions
+                      </a>{" "}
+                      and{" "}
+                      <a
+                        href="/privacy"
+                        target="_blank"
+                        className="text-[#5B8CFF] hover:text-[#8A7CFF] font-semibold transition-colors"
+                      >
+                        Privacy Policy
+                      </a>
+                      , including the no-refund policy and all subscription
+                      terms.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Info Box */}
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(59,130,246,0.07)",
+                    border: "1px solid rgba(59,130,246,0.2)",
+                  }}
+                >
+                  <div className="flex gap-3">
+                    <AlertCircle
+                      className="text-blue-400 flex-shrink-0 mt-0.5"
+                      size={18}
+                    />
+                    <div className="text-[12px] text-[#94A3B8] leading-relaxed">
+                      <p className="font-semibold text-[#C8D6EF] mb-1">
+                        Important: Email Consistency Required
+                      </p>
+                      <p>
+                        Use the{" "}
+                        <strong className="text-white">
+                          same email address
+                        </strong>{" "}
+                        on Lemon Squeezy billing if you purchase a Pro
+                        subscription. Quvanti is not responsible for mismatches.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {error && (
+                  <div
+                    className="rounded-xl p-3 text-[13px] text-red-300"
+                    style={{
+                      background: "rgba(239,68,68,0.1)",
+                      border: "1px solid rgba(239,68,68,0.2)",
+                    }}
+                  >
+                    {error}
+                  </div>
+                )}
+
+                {/* Submit */}
+                <button
+                  type="submit"
+                  disabled={loading || !agreedToTerms}
+                  className="w-full py-3 rounded-xl text-[14px] font-bold text-white transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #5B8CFF 0%, #8A7CFF 100%)",
+                    boxShadow: "0 8px 32px rgba(91,140,255,0.3)",
+                  }}
+                >
+                  <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                  <span className="relative flex items-center justify-center gap-2">
+                    <Zap size={15} />
+                    {loading ? "Creating Account..." : "Create Account"}
+                  </span>
+                </button>
+
+                <p className="text-center text-[13px] text-[#8B9EB5]">
+                  Already have an account?{" "}
+                  <a
+                    href={`/account/signin${typeof window !== "undefined" ? window.location.search : ""}`}
+                    className="text-[#5B8CFF] hover:text-[#8A7CFF] font-semibold transition-colors"
+                  >
+                    Sign in
+                  </a>
+                </p>
+              </div>
+            </form>
+          </div>
+        </div>
+      </InternalLayout>
+    </>
+  );
+}
+
+export default MainComponent;
+
+
+
