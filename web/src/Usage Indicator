@@ -1,0 +1,87 @@
+"use client";
+
+import { Activity, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+
+export default function UsageIndicator({ subscription }) {
+  const [usage, setUsage] = useState(null);
+
+  useEffect(() => {
+    if (subscription?.usage) {
+      setUsage(subscription.usage);
+    }
+  }, [subscription]);
+
+  if (!usage) return null;
+
+  const { current, max, remaining } = usage;
+  const percentage = (current / max) * 100;
+  const isLow = remaining <= 1;
+  const isPro = subscription?.tier === "pro";
+
+  return (
+    <div className="bg-gradient-to-br from-[#1F2937] to-[#111827] border-2 border-[#374151] rounded-xl p-4 shadow-lg">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Activity className="text-cyan-400" size={20} />
+          <span className="text-[#E5E7EB] font-semibold text-sm">
+            Daily Runs
+          </span>
+        </div>
+        {isPro && (
+          <span className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white text-xs px-2 py-1 rounded font-bold">
+            PRO
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-bold text-white">{remaining}</span>
+          <span className="text-[#9CA3AF] text-sm">runs left today</span>
+        </div>
+
+        <div className="w-full bg-[#111827] rounded-full h-2 overflow-hidden">
+          <div
+            className={`h-full transition-all duration-500 ${
+              isLow
+                ? "bg-gradient-to-r from-red-500 to-orange-500"
+                : "bg-gradient-to-r from-cyan-500 to-purple-500"
+            }`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[#9CA3AF]">
+            {current} of {max} used
+          </span>
+          {!isPro && (
+            <a
+              href="/upgrade"
+              className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors"
+            >
+              <Zap size={12} />
+              Upgrade for more
+            </a>
+          )}
+        </div>
+      </div>
+
+      {isLow && !isPro && (
+        <div className="mt-3 pt-3 border-t border-[#374151]">
+          <p className="text-orange-400 text-xs mb-2"> Running low!</p>
+          <a
+            href="/upgrade"
+            className="block w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-xs px-3 py-2 rounded-lg font-semibold text-center transition-all"
+          >
+            Upgrade to Pro (15 runs/day)
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
