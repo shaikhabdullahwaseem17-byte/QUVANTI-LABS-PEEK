@@ -1,77 +1,217 @@
-// Quvanti Service Worker - Elite Caching Strategy
-// Version: 1.0.0
-const CACHE_VERSION = "quvanti-v1";
-const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
-const API_CACHE = `${CACHE_VERSION}-api`;
+"use client";
 
-// Assets to cache immediately on install
-const STATIC_ASSETS = [
-  "/",
-  "/dashboard",
-  "/signals",
-  "/agents/create",
-  "/strategy-lab",
-  "/offline",
-  "/manifest.json",
-  "/icons/icon-192x192.png",
-  "/icons/icon-512x512.png",
-];
+import { useState } from "react";
+import useAuth from "@/utils/useAuth";
+import { Eye, EyeOff, ArrowLeft, Zap } from "lucide-react";
+import InternalLayout from "@/components/InternalLayout";
 
-// Install event - cache static assets
-self.addEventListener("install", (event) => {
-  console.log("[Service Worker] Installing...");
-  event.waitUntil(
-    caches
-      .open(STATIC_CACHE)
-      .then((cache) => {
-        console.log("[Service Worker] Caching static assets");
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .then(() => {
-        console.log("[Service Worker] Installation complete");
-        return self.skipWaiting(); // Activate immediately
-      }),
+function MainComponent() {
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  const { signInWithCredentials } = useAuth();
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    if (!email || !password) {
+      setError("Please fill in all fields");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await signInWithCredentials({
+        email,
+        password,
+        callbackUrl: "/",
+        redirect: true,
+      });
+    } catch (err) {
+      const errorMessages = {
+        CredentialsSignin:
+          "Incorrect email or password. Please check your credentials and try again.",
+        OAuthSignin:
+          "Couldn't start sign-in. Please try again or use a different method.",
+        OAuthCallback: "Sign-in failed after redirecting. Please try again.",
+        OAuthCreateAccount:
+          "Couldn't create an account with this sign-in method. Try another option.",
+        EmailCreateAccount:
+          "This email can't be used to create an account. It may already exist.",
+        Callback: "Something went wrong during sign-in. Please try again.",
+        OAuthAccountNotLinked:
+          "This account is linked to a different sign-in method. Try using that instead.",
+        AccessDenied: "You don't have permission to sign in.",
+        Configuration:
+          "Sign-in isn't working right now. Please try again later.",
+        Verification: "Your sign-in link has expired. Request a new one.",
+      };
+      setError(
+        errorMessages[err.message] || "Something went wrong. Please try again.",
+      );
+      setLoading(false);
+    }
+  };
+
+  return (
+    <InternalLayout>
+      {/* Back Button */}
+      <button
+        onClick={() => window.history.back()}
+        className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium text-[#8B9EB5] hover:text-white transition-all"
+        style={{
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <ArrowLeft size={16} />
+        Go Back
+      </button>
+
+      <div className="flex min-h-screen w-full items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          {/* Logo / Brand */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 mb-3">
+              <img
+                src="https://ucarecdn.com/d39e423f-56fe-46e4-b20b-04ba0efd4bdc/-/format/auto/"
+                alt="Quvanti"
+                className="w-9 h-9 rounded-full border border-white/10"
+              />
+              <span className="text-white font-bold text-lg">Quvanti Labs</span>
+            </div>
+            <h1 className="text-3xl font-black text-white mb-1 no-breathe">
+              Welcome Back
+            </h1>
+            <p className="text-[#8B9EB5] text-sm">
+              Sign in to your AI trading terminal
+            </p>
+          </div>
+
+          {/* Glass Card */}
+          <form
+            noValidate
+            onSubmit={onSubmit}
+            className="rounded-2xl p-8"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              backdropFilter: "blur(24px)",
+              boxShadow:
+                "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
+            <div className="space-y-5">
+              {/* Email */}
+              <div>
+                <label className="block text-[12px] font-semibold text-[#8B9EB5] uppercase tracking-widest mb-2">
+                  Email
+                </label>
+                <div
+                  className="rounded-xl px-4 py-3 flex items-center transition-all focus-within:border-[rgba(91,140,255,0.5)]"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <input
+                    required
+                    name="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className="w-full bg-transparent text-white text-[15px] outline-none placeholder-[#4A5568]"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-[12px] font-semibold text-[#8B9EB5] uppercase tracking-widest mb-2">
+                  Password
+                </label>
+                <div
+                  className="rounded-xl px-4 py-3 flex items-center gap-2 transition-all focus-within:border-[rgba(91,140,255,0.5)]"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <input
+                    required
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="flex-1 bg-transparent text-white text-[15px] outline-none placeholder-[#4A5568]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-[#4A5568] hover:text-[#8B9EB5] transition-colors p-1"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <div
+                  className="rounded-xl p-3 text-[13px] text-red-300"
+                  style={{
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.2)",
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 rounded-xl text-[14px] font-bold text-white transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #5B8CFF 0%, #8A7CFF 100%)",
+                  boxShadow: "0 8px 32px rgba(91,140,255,0.3)",
+                }}
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                <span className="relative flex items-center justify-center gap-2">
+                  <Zap size={15} />
+                  {loading ? "Signing In..." : "Sign In"}
+                </span>
+              </button>
+
+              <p className="text-center text-[13px] text-[#8B9EB5]">
+                Don't have an account?{" "}
+                <a
+                  href={`/account/signup${typeof window !== "undefined" ? window.location.search : ""}`}
+                  className="text-[#5B8CFF] hover:text-[#8A7CFF] font-semibold transition-colors"
+                >
+                  Sign up free
+                </a>
+              </p>
+            </div>
+          </form>
+        </div>
+      </div>
+    </InternalLayout>
   );
-});
+}
 
-// Activate event - clean up old caches
-self.addEventListener("activate", (event) => {
-  console.log("[Service Worker] Activating...");
-  event.waitUntil(
-    caches
-      .keys()
-      .then((cacheNames) => {
-        return Promise.all(
-          cacheNames
-            .filter(
-              (name) =>
-                name.startsWith("quvanti-") &&
-                name !== STATIC_CACHE &&
-                name !== DYNAMIC_CACHE &&
-                name !== API_CACHE,
-            )
-            .map((name) => {
-              console.log("[Service Worker] Deleting old cache:", name);
-              return caches.delete(name);
-            }),
-        );
-      })
-      .then(() => {
-        console.log("[Service Worker] Activation complete");
-        return self.clients.claim(); // Take control immediately
-      }),
-  );
-});
+export default MainComponent;
 
-// Fetch event - stale-while-revalidate strategy
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
 
-  // Skip cross-origin requests (e.g., external APIs)
-  if (url.origin !== location.origin) {
-    return;
-  }
 
-  // API requests - network-first with cache fallback
