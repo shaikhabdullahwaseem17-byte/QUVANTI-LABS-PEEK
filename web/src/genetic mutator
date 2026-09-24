@@ -1,0 +1,1114 @@
+"use client";
+
+/**
+ * GeneticMutator — Quvanti Labs Strategy Evolution Engine
+ *
+ * Displays the genetic mutation of strategy parameters,
+ * the 10 offspring Sharpe-ranked children, and the full
+ * source code of the fitness function.
+ */
+
+import { useState, useCallback } from "react";
+import {
+  BarChart,
+  Bar,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+import {
+  Dna,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  Code2,
+  Play,
+  Info,
+  Award,
+  RefreshCw,
+} from "lucide-react";
+import GlassButton from "@/components/GlassButton";
+
+// ── Colours ────────────────────────────────────────────────────────────────────
+const C = {
+  elite: "#34D399",
+  average: "#5B8CFF",
+  weak: "#F87171",
+  parent: "#FACC15",
+  neutral: "#64748B",
+};
+
+// ── Parameter labels for display ──────────────────────────────────────────────
+const PARAM_META = {
+  rsiPeriod: { label: "RSI Period", unit: "bars", emoji: "📊" },
+  emaPeriod: { label: "EMA Period", unit: "bars", emoji: "📈" },
+  stopLossPct: { label: "Stop Loss", unit: "%", emoji: "🛑" },
+  takeProfitPct: { label: "Take Profit", unit: "%", emoji: "🎯" },
+  positionSizePct: { label: "Position Size", unit: "% capital", emoji: "💼" },
+};
+
+// ── Default parent parameters ─────────────────────────────────────────────────
+const DEFAULT_PARENT = {
+  rsiPeriod: 14,
+  emaPeriod: 200,
+  stopLossPct: 2.0,
+  takeProfitPct: 4.0,
+  positionSizePct: 10.0,
+  mutationRate: 0.2,
+};
+
+// ── Sharpe colour ─────────────────────────────────────────────────────────────
+function sharpeColor(s) {
+  if (s > 1.5) return C.elite;
+  if (s > 0.5) return C.average;
+  if (s > 0) return "#F59E0B";
+  return C.weak;
+}
+
+// ── Child card ────────────────────────────────────────────────────────────────
+function ChildCard({ child, parentFitness, isExpanded, onToggle }) {
+  const isElite = child.isElite;
+  const isTop3 = child.rank <= 3;
+  const sColor = sharpeColor(child.fitness.sharpe);
+  const improvement = parseFloat(
+    (child.fitness.sharpe - parentFitness).toFixed(4),
+  );
+
+  return (
+    <div
+      style={{
+        borderRadius: "16px",
+        border: `1px solid ${isTop3 ? `${sColor}40` : "rgba(255,255,255,0.07)"}`,
+        background: isTop3
+          ? `rgba(${isTop3 && isElite ? "52,211,153" : "91,140,255"},0.04)`
+          : "rgba(255,255,255,0.02)",
+        overflow: "hidden",
+        transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)",
+        boxShadow: isTop3 ? `0 4px 20px ${sColor}15` : "none",
+      }}
+    >
+      {/* Summary row */}
+      <button
+        onClick={onToggle}
+        style={{
+          width: "100%",
+          padding: "14px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        {/* Rank badge */}
+        <div
+          style={{
+            width: "28px",
+            height: "28px",
+            borderRadius: "8px",
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "12px",
+            fontWeight: 900,
+            fontFamily: "Inter, sans-serif",
+            background: isTop3 ? `${sColor}20` : "rgba(255,255,255,0.05)",
+            color: isTop3 ? sColor : C.neutral,
+            border: `1px solid ${isTop3 ? `${sColor}35` : "rgba(255,255,255,0.08)"}`,
+          }}
+        >
+          {child.rank}
+        </div>
+
+        {/* Sharpe */}
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span
+              style={{
+                fontSize: "17px",
+                fontWeight: 900,
+                color: sColor,
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              {child.fitness.sharpe}
+            </span>
+            <span
+              style={{
+                fontSize: "10px",
+                color: "#475569",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              Sharpe
+            </span>
+            {isElite && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: "6px",
+                  color: C.elite,
+                  background: "rgba(52,211,153,0.12)",
+                  border: "1px solid rgba(52,211,153,0.25)",
+                  fontFamily: "Inter, sans-serif",
+                }}
+              >
+                BEATS PARENT
+              </span>
+            )}
+          </div>
+          <p
+            style={{
+              fontSize: "10px",
+              color: C.neutral,
+              margin: 0,
+              fontFamily: "monospace",
+            }}
+          >
+            Child #{child.id} · Ann.Ret: {child.fitness.annReturn}% · WinRate:{" "}
+            {child.fitness.winRate}%
+          </p>
+        </div>
+
+        {/* Improvement delta */}
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <p
+            style={{
+              fontSize: "13px",
+              fontWeight: 700,
+              color:
+                improvement > 0
+                  ? C.elite
+                  : improvement < 0
+                    ? C.weak
+                    : C.neutral,
+              fontFamily: "monospace",
+              margin: 0,
+            }}
+          >
+            {improvement > 0 ? "+" : ""}
+            {improvement}
+          </p>
+          <p
+            style={{
+              fontSize: "10px",
+              color: C.neutral,
+              margin: 0,
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            vs parent
+          </p>
+        </div>
+
+        {isExpanded ? (
+          <ChevronUp size={14} color={C.neutral} />
+        ) : (
+          <ChevronDown size={14} color={C.neutral} />
+        )}
+      </button>
+
+      {/* Expanded: param deltas */}
+      {isExpanded && (
+        <div
+          style={{
+            padding: "0 16px 14px 16px",
+            borderTop: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gap: "8px",
+              marginTop: "12px",
+            }}
+          >
+            {Object.entries(PARAM_META).map(([key, meta]) => {
+              const delta = child.deltas?.[key] ?? 0;
+              const value = child.params?.[key] ?? "—";
+              const changed = Math.abs(delta) > 0.01;
+              return (
+                <div
+                  key={key}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: "10px",
+                    background: changed
+                      ? "rgba(91,140,255,0.06)"
+                      : "rgba(255,255,255,0.02)",
+                    border: `1px solid ${changed ? "rgba(91,140,255,0.18)" : "rgba(255,255,255,0.05)"}`,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: "9px",
+                      color: C.neutral,
+                      margin: "0 0 3px 0",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                      fontFamily: "Inter, sans-serif",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {meta.emoji} {meta.label}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: 800,
+                      color: "#E2E8F0",
+                      fontFamily: "monospace",
+                      margin: 0,
+                    }}
+                  >
+                    {value}{" "}
+                    <span style={{ fontSize: "10px", color: C.neutral }}>
+                      {meta.unit}
+                    </span>
+                  </p>
+                  {changed && (
+                    <p
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        margin: "2px 0 0 0",
+                        fontFamily: "monospace",
+                        color: delta > 0 ? C.elite : C.weak,
+                      }}
+                    >
+                      {delta > 0 ? "+" : ""}
+                      {delta.toFixed(3)}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function GeneticMutator({ defaultSymbol = "BTC" }) {
+  const [symbol, setSymbol] = useState(defaultSymbol);
+  const [params, setParams] = useState({ ...DEFAULT_PARENT });
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [expandedChild, setExpandedChild] = useState(null);
+  const [showCode, setShowCode] = useState(false);
+  const [showFormula, setShowFormula] = useState(true);
+  const [seed, setSeed] = useState(42);
+
+  const SYMBOLS = ["BTC", "ETH", "SOL", "AVAX", "LINK"];
+
+  const runMutation = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/quant-engine/genetic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ params, symbol, seed }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error)
+        throw new Error(json.error || "Genetic mutation failed");
+      setResult(json);
+      setExpandedChild(null);
+    } catch (err) {
+      console.error("[GeneticMutator]", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [params, symbol, seed]);
+
+  const chartData =
+    result?.offspring?.map((o) => ({
+      id: `C${o.id}`,
+      sharpe: o.fitness.sharpe,
+      isElite: o.isElite,
+      rank: o.rank,
+    })) || [];
+
+  const parentSharpe = result?.parent?.fitness?.sharpe ?? null;
+
+  return (
+    <div
+      style={{
+        borderRadius: "20px",
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        backdropFilter: "blur(20px)",
+        overflow: "hidden",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: "20px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "12px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "12px",
+              background: "rgba(91,140,255,0.15)",
+              border: "1px solid rgba(91,140,255,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Dna size={20} color="#93C5FD" />
+          </div>
+          <div>
+            <h2
+              style={{
+                fontSize: "17px",
+                fontWeight: 900,
+                color: "#F8FAFC",
+                fontFamily: "Inter, sans-serif",
+                margin: 0,
+              }}
+            >
+              Genetic Strategy Mutator
+            </h2>
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#64748B",
+                margin: 0,
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              P_offspring = P_parent ± (MutationRate × σ) · Fitness: Sharpe
+              Ratio
+            </p>
+          </div>
+        </div>
+
+        {/* Symbol selector */}
+        <div style={{ display: "flex", gap: "4px" }}>
+          {SYMBOLS.map((s) => (
+            <button
+              key={s}
+              onClick={() => setSymbol(s)}
+              style={{
+                padding: "5px 10px",
+                borderRadius: "8px",
+                fontSize: "11px",
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s",
+                fontFamily: "Inter, sans-serif",
+                background:
+                  symbol === s
+                    ? "rgba(91,140,255,0.2)"
+                    : "rgba(255,255,255,0.04)",
+                border:
+                  symbol === s
+                    ? "1px solid rgba(91,140,255,0.4)"
+                    : "1px solid rgba(255,255,255,0.08)",
+                color: symbol === s ? "#93C5FD" : "#64748B",
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: "20px 24px" }}>
+        {/* Parent Parameter Sliders */}
+        <div style={{ marginBottom: "20px" }}>
+          <p
+            style={{
+              fontSize: "13px",
+              fontWeight: 700,
+              color: "#94A3B8",
+              fontFamily: "Inter, sans-serif",
+              marginBottom: "12px",
+            }}
+          >
+            Parent Strategy Parameters
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            {[
+              {
+                key: "rsiPeriod",
+                min: 2,
+                max: 200,
+                step: 1,
+                label: "RSI Period",
+                unit: "bars",
+              },
+              {
+                key: "emaPeriod",
+                min: 2,
+                max: 500,
+                step: 1,
+                label: "EMA Period",
+                unit: "bars",
+              },
+              {
+                key: "stopLossPct",
+                min: 0.1,
+                max: 20,
+                step: 0.1,
+                label: "Stop Loss",
+                unit: "%",
+              },
+              {
+                key: "takeProfitPct",
+                min: 0.1,
+                max: 50,
+                step: 0.1,
+                label: "Take Profit",
+                unit: "%",
+              },
+              {
+                key: "positionSizePct",
+                min: 0.5,
+                max: 100,
+                step: 0.5,
+                label: "Position Size",
+                unit: "%",
+              },
+              {
+                key: "mutationRate",
+                min: 0.05,
+                max: 0.5,
+                step: 0.05,
+                label: "Mutation Rate",
+                unit: "",
+              },
+            ].map(({ key, min, max, step, label, unit }) => (
+              <div
+                key={key}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "12px",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "#64748B",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
+                    {label}
+                  </label>
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 800,
+                      color: "#E2E8F0",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {params[key]}
+                    {unit}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step={step}
+                  value={params[key]}
+                  onChange={(e) =>
+                    setParams((prev) => ({
+                      ...prev,
+                      [key]: parseFloat(e.target.value),
+                    }))
+                  }
+                  style={{ width: "100%", accentColor: "#5B8CFF" }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Run button */}
+        <GlassButton
+          onClick={runMutation}
+          disabled={loading}
+          size="lg"
+          style={{
+            width: "100%",
+            marginBottom: "24px",
+            background: loading
+              ? "rgba(255,255,255,0.04)"
+              : "linear-gradient(135deg, rgba(91,140,255,0.28), rgba(138,92,246,0.28))",
+            border: "1px solid rgba(91,140,255,0.4)",
+          }}
+        >
+          {loading ? (
+            <>
+              <RefreshCw
+                size={16}
+                style={{ animation: "spin 1s linear infinite" }}
+              />
+              Evolving 10 offspring…
+            </>
+          ) : (
+            <>
+              <Dna size={16} /> Optimize — Generate 10 Mutations
+            </>
+          )}
+        </GlassButton>
+
+        {error && (
+          <div
+            style={{
+              padding: "12px 16px",
+              borderRadius: "12px",
+              marginBottom: "16px",
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.2)",
+              color: "#FCA5A5",
+              fontSize: "13px",
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Results */}
+        {result && (
+          <>
+            {/* Tournament summary */}
+            <div
+              style={{
+                padding: "14px 18px",
+                borderRadius: "14px",
+                marginBottom: "20px",
+                background:
+                  result.tournament.generationImprovement > 0
+                    ? "rgba(52,211,153,0.06)"
+                    : "rgba(91,140,255,0.06)",
+                border: `1px solid ${
+                  result.tournament.generationImprovement > 0
+                    ? "rgba(52,211,153,0.25)"
+                    : "rgba(91,140,255,0.2)"
+                }`,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "16px",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    fontSize: "10px",
+                    color: "#64748B",
+                    margin: 0,
+                    fontFamily: "Inter, sans-serif",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Parent Sharpe
+                </p>
+                <p
+                  style={{
+                    fontSize: "22px",
+                    fontWeight: 900,
+                    color: C.parent,
+                    fontFamily: "monospace",
+                    margin: 0,
+                  }}
+                >
+                  {result.parent.fitness.sharpe}
+                </p>
+              </div>
+              <div style={{ fontSize: "18px", color: "#374151" }}>→</div>
+              <div>
+                <p
+                  style={{
+                    fontSize: "10px",
+                    color: "#64748B",
+                    margin: 0,
+                    fontFamily: "Inter, sans-serif",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Best Child Sharpe
+                </p>
+                <p
+                  style={{
+                    fontSize: "22px",
+                    fontWeight: 900,
+                    color: sharpeColor(result.tournament.bestChildSharpe),
+                    fontFamily: "monospace",
+                    margin: 0,
+                  }}
+                >
+                  {result.tournament.bestChildSharpe}
+                </p>
+              </div>
+              <div style={{ flex: 1, textAlign: "right" }}>
+                <p
+                  style={{
+                    fontSize: "10px",
+                    color: "#64748B",
+                    margin: "0 0 2px 0",
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  Generation Δ Sharpe
+                </p>
+                <p
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 900,
+                    margin: 0,
+                    fontFamily: "monospace",
+                    color:
+                      result.tournament.generationImprovement > 0
+                        ? C.elite
+                        : C.weak,
+                  }}
+                >
+                  {result.tournament.generationImprovement > 0 ? "+" : ""}
+                  {result.tournament.generationImprovement}
+                </p>
+                <p
+                  style={{
+                    fontSize: "11px",
+                    color: "#64748B",
+                    margin: 0,
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  {result.tournament.eliteCount}/{result.offspring.length}{" "}
+                  children beat parent ·{" "}
+                  {result.tournament.parentSurvives
+                    ? "Parent retained"
+                    : "Parent replaced"}
+                </p>
+              </div>
+            </div>
+
+            {/* Sharpe Bar Chart */}
+            <div style={{ marginBottom: "20px" }}>
+              <p
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#94A3B8",
+                  fontFamily: "Inter, sans-serif",
+                  marginBottom: "8px",
+                }}
+              >
+                Offspring Sharpe Ranking — Yellow line = Parent baseline
+              </p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 5, right: 8, left: 0, bottom: 5 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="2 6"
+                    stroke="rgba(255,255,255,0.04)"
+                  />
+                  <XAxis
+                    dataKey="id"
+                    tick={{ fill: "#475569", fontSize: 10 }}
+                  />
+                  <YAxis tick={{ fill: "#475569", fontSize: 10 }} />
+                  <Tooltip
+                    content={({ active, payload }) =>
+                      active && payload?.length ? (
+                        <div
+                          style={{
+                            background: "rgba(8,11,16,0.96)",
+                            borderRadius: "10px",
+                            padding: "8px 12px",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            fontSize: "11px",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          <p style={{ color: "#94A3B8", margin: 0 }}>
+                            {payload[0].payload.id}
+                          </p>
+                          <p
+                            style={{
+                              color: sharpeColor(payload[0].value),
+                              fontWeight: 700,
+                              margin: 0,
+                            }}
+                          >
+                            Sharpe: {payload[0].value}
+                          </p>
+                        </div>
+                      ) : null
+                    }
+                  />
+                  {parentSharpe !== null && (
+                    <ReferenceLine
+                      y={parentSharpe}
+                      stroke={C.parent}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                      label={{
+                        value: "Parent",
+                        fill: C.parent,
+                        fontSize: 10,
+                        position: "insideTopRight",
+                      }}
+                    />
+                  )}
+                  <Bar dataKey="sharpe" radius={[5, 5, 0, 0]}>
+                    {chartData.map((d, i) => (
+                      <Cell
+                        key={i}
+                        fill={sharpeColor(d.sharpe)}
+                        fillOpacity={d.rank <= 3 ? 0.9 : 0.5}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Children cards */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                marginBottom: "20px",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#94A3B8",
+                  fontFamily: "Inter, sans-serif",
+                  margin: "0 0 4px 0",
+                }}
+              >
+                All 10 Offspring (ranked by Sharpe)
+              </p>
+              {result.offspring.map((child) => (
+                <ChildCard
+                  key={child.id}
+                  child={child}
+                  parentFitness={result.parent.fitness.sharpe}
+                  isExpanded={expandedChild === child.id}
+                  onToggle={() =>
+                    setExpandedChild(
+                      expandedChild === child.id ? null : child.id,
+                    )
+                  }
+                />
+              ))}
+            </div>
+
+            {/* The "Why" Toggle — Fitness Function */}
+            <div style={{ marginBottom: "12px" }}>
+              <button
+                onClick={() => setShowFormula((v) => !v)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "rgba(91,140,255,0.06)",
+                  border: "1px solid rgba(91,140,255,0.2)",
+                  borderRadius: "10px",
+                  padding: "9px 16px",
+                  cursor: "pointer",
+                  color: "#93C5FD",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  fontFamily: "Inter, sans-serif",
+                  width: "100%",
+                  transition: "all 0.2s",
+                }}
+              >
+                <Info size={13} />
+                <span style={{ flex: 1, textAlign: "left" }}>
+                  Why did this child win? — Sharpe Fitness Function
+                </span>
+                {showFormula ? (
+                  <ChevronUp size={13} />
+                ) : (
+                  <ChevronDown size={13} />
+                )}
+              </button>
+
+              {showFormula && result.fitnessFunction && (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    padding: "16px",
+                    borderRadius: "14px",
+                    background: "rgba(0,0,0,0.5)",
+                    border: "1px solid rgba(91,140,255,0.15)",
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#5B8CFF",
+                      fontFamily: "Inter, sans-serif",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    {result.fitnessFunction.name}
+                  </p>
+
+                  {/* Formula */}
+                  <div
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "10px",
+                      marginBottom: "12px",
+                      background: "rgba(91,140,255,0.08)",
+                      border: "1px solid rgba(91,140,255,0.2)",
+                    }}
+                  >
+                    <code
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 700,
+                        color: "#93C5FD",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      S = (R_p − R_f) / σ_p × √252
+                    </code>
+                  </div>
+
+                  {/* Parameter glossary */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: "8px",
+                      marginBottom: "14px",
+                    }}
+                  >
+                    {Object.entries(result.fitnessFunction.parameters).map(
+                      ([k, v]) => (
+                        <div
+                          key={k}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          <code
+                            style={{
+                              fontSize: "12px",
+                              color: "#FACC15",
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            {k}
+                          </code>
+                          <p
+                            style={{
+                              fontSize: "10px",
+                              color: "#64748B",
+                              margin: "3px 0 0 0",
+                              fontFamily: "Inter, sans-serif",
+                            }}
+                          >
+                            {v}
+                          </p>
+                        </div>
+                      ),
+                    )}
+                  </div>
+
+                  {/* Source Code toggle */}
+                  <button
+                    onClick={() => setShowCode((v) => !v)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      padding: "7px 14px",
+                      cursor: "pointer",
+                      color: "#94A3B8",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      fontFamily: "Inter, sans-serif",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <Code2 size={13} />
+                    {showCode ? "Hide" : "Show"} exact source code that ran this
+                    {showCode ? (
+                      <ChevronUp size={12} />
+                    ) : (
+                      <ChevronDown size={12} />
+                    )}
+                  </button>
+
+                  {showCode && (
+                    <div
+                      style={{
+                        background: "#0B0F14",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(91,140,255,0.15)",
+                        overflow: "auto",
+                        maxHeight: "480px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "8px 16px",
+                          borderBottom: "1px solid rgba(255,255,255,0.06)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <Code2 size={12} color="#5B8CFF" />
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            color: "#5B8CFF",
+                            fontFamily: "Inter, sans-serif",
+                            fontWeight: 700,
+                          }}
+                        >
+                          computeSharpe.js — Fitness Function (verbatim server
+                          execution)
+                        </span>
+                      </div>
+                      <pre
+                        style={{
+                          padding: "16px",
+                          margin: 0,
+                          fontSize: "11px",
+                          lineHeight: "1.75",
+                          color: "#93C5FD",
+                          fontFamily: "monospace",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {result.fitnessFunction.sourceCode}
+                      </pre>
+                    </div>
+                  )}
+
+                  <p
+                    style={{
+                      fontSize: "10px",
+                      color: "#374151",
+                      marginTop: "8px",
+                      fontFamily: "Inter, sans-serif",
+                    }}
+                  >
+                    Reference: {result.fitnessFunction.reference}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Mutation metadata */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: "12px",
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                fontSize: "10px",
+                fontFamily: "monospace",
+                color: "#475569",
+                lineHeight: "1.7",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontWeight: 700,
+                  color: "#64748B",
+                  fontFamily: "Inter, sans-serif",
+                  marginBottom: "4px",
+                }}
+              >
+                Mutation Metadata
+              </p>
+              {result.mutationMetadata &&
+                Object.entries(result.mutationMetadata).map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", gap: "8px" }}>
+                    <span style={{ color: "#FACC15", minWidth: "120px" }}>
+                      {k}:
+                    </span>
+                    <span style={{ color: "#64748B" }}>{v}</span>
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <style jsx global>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}
+
+
+
