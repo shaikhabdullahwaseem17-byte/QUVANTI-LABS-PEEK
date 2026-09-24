@@ -1,0 +1,920 @@
+"use client";
+
+/**
+ * WhaleTracker — Quvanti Labs Order Flow Imbalance Monitor
+ *
+ * Renders the OFI stream, whale detection events, and a live-updating
+ * "WHALE DETECTED" toast when |OFI_t| exceeds the 95th percentile.
+ *
+ * Data source: GET /api/quant-engine/ofi?symbol=X&days=3&window=60
+ */
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  AreaChart,
+  Area,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
+  Activity,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  RefreshCw,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+} from "lucide-react";
+import GlassButton from "@/components/GlassButton";
+
+// ── Colour constants ──────────────────────────────────────────────────────────
+const C = {
+  buy: "#34D399",
+  sell: "#F87171",
+  whale: "#FACC15",
+  accent: "#5B8CFF",
+  muted: "#64748B",
+};
+
+// ── Whale Toast ───────────────────────────────────────────────────────────────
+function WhaleToast({ event, onDismiss }) {
+  const side = event.isBuyPressure ? "BUY" : "SELL";
+  const sideColor = event.isBuyPressure ? C.buy : C.sell;
+
+  return (
+    <div
+      className="whale-toast"
+      style={{
+        position: "fixed",
+        top: "80px",
+        right: "20px",
+        zIndex: 9999,
+        maxWidth: "340px",
+        width: "calc(100vw - 40px)",
+        borderRadius: "18px",
+        padding: "16px 20px",
+        background: "rgba(0,0,0,0.92)",
+        border: `1px solid rgba(250,204,21,0.5)`,
+        backdropFilter: "blur(24px) saturate(180%)",
+        WebkitBackdropFilter: "blur(24px) saturate(180%)",
+        boxShadow: `0 0 40px rgba(250,204,21,0.18), 0 8px 40px rgba(0,0,0,0.7),
+                    inset 0 1px 0 rgba(255,255,255,0.08)`,
+        animation: "whaleSlideIn 0.35s cubic-bezier(0.16,1,0.3,1) both",
+      }}
+    >
+      {/* Header row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "10px",
+        }}
+      >
+        <div
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "10px",
+            flexShrink: 0,
+            background: "rgba(250,204,21,0.15)",
+            border: "1px solid rgba(250,204,21,0.3)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Zap size={18} color={C.whale} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <p
+            style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              color: C.whale,
+              fontFamily: "Inter, sans-serif",
+              margin: 0,
+            }}
+          >
+            WHALE DETECTED
+          </p>
+          <p
+            style={{
+              fontSize: "10px",
+              color: "#64748B",
+              margin: 0,
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            |OFI| exceeded 95th percentile
+          </p>
+        </div>
+        <button
+          onClick={onDismiss}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#64748B",
+            padding: "2px",
+            borderRadius: "6px",
+          }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Signal row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 12px",
+          borderRadius: "12px",
+          background: `rgba(${event.isBuyPressure ? "52,211,153" : "248,113,113"},0.08)`,
+          border: `1px solid rgba(${event.isBuyPressure ? "52,211,153" : "248,113,113"},0.2)`,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {event.isBuyPressure ? (
+            <TrendingUp size={16} color={C.buy} />
+          ) : (
+            <TrendingDown size={16} color={C.sell} />
+          )}
+          <div>
+            <p
+              style={{
+                fontSize: "16px",
+                fontWeight: 900,
+                color: sideColor,
+                fontFamily: "Inter, sans-serif",
+                margin: 0,
+              }}
+            >
+              {side} PRESSURE
+            </p>
+            <p
+              style={{
+                fontSize: "10px",
+                color: "#94A3B8",
+                margin: 0,
+                fontFamily: "mono, monospace",
+              }}
+            >
+              OFI = {event.ofi?.toFixed ? event.ofi.toFixed(4) : "–"}
+            </p>
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <p
+            style={{
+              fontSize: "20px",
+              fontWeight: 900,
+              color: C.whale,
+              fontFamily: "Inter, sans-serif",
+              margin: 0,
+            }}
+          >
+            {event.signalStrength?.toFixed
+              ? `${event.signalStrength.toFixed(2)}×`
+              : "—"}
+          </p>
+          <p
+            style={{
+              fontSize: "10px",
+              color: "#64748B",
+              margin: 0,
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            signal / p95
+          </p>
+        </div>
+      </div>
+
+      {/* Detail row */}
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          marginTop: "8px",
+          fontSize: "10px",
+          color: "#64748B",
+          fontFamily: "mono, monospace",
+        }}
+      >
+        <span>|OFI| = {Math.abs(event.ofi || 0).toFixed(4)}</span>
+        <span style={{ color: "#374151" }}>|</span>
+        <span>p95 = {(event.p95 || 0).toFixed(4)}</span>
+        <span style={{ color: "#374151" }}>|</span>
+        <span style={{ color: sideColor, fontWeight: 700 }}>
+          {event.isBuyPressure ? "↑ Bid queue surge" : "↓ Ask queue surge"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── OFI Tooltip ───────────────────────────────────────────────────────────────
+function OFITooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  return (
+    <div
+      style={{
+        background: "rgba(8,11,16,0.96)",
+        borderRadius: "12px",
+        padding: "10px 14px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        fontSize: "11px",
+        fontFamily: "Inter, sans-serif",
+      }}
+    >
+      <p style={{ color: "#94A3B8", marginBottom: "6px", fontWeight: 600 }}>
+        Tick {d.t}
+      </p>
+      <p
+        style={{
+          color: d.isBuyPressure ? C.buy : C.sell,
+          fontWeight: 700,
+          margin: "2px 0",
+        }}
+      >
+        OFI: {d.normalizedOFI?.toFixed(3)} σ
+      </p>
+      <p style={{ color: "#64748B", margin: "2px 0" }}>
+        Raw: {d.ofi?.toFixed(6)}
+      </p>
+      <p style={{ color: "#475569", margin: "2px 0" }}>
+        p95: {d.p95?.toFixed(6)}
+      </p>
+      {d.isWhale && (
+        <p style={{ color: C.whale, fontWeight: 700, marginTop: "4px" }}>
+          WHALE EVENT ⚡
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function WhaleTracker({ defaultSymbol = "BTC" }) {
+  const [symbol, setSymbol] = useState(defaultSymbol);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [showFormula, setShowFormula] = useState(false);
+  const [whaleToasts, setWhaleToasts] = useState([]); // stack of active toasts
+  const [seenWhales, setSeenWhales] = useState(new Set()); // prevent duplicate toasts
+
+  const SYMBOLS = ["BTC", "ETH", "SOL", "AVAX", "LINK", "MATIC"];
+
+  const fetchOFI = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/quant-engine/ofi?symbol=${symbol}&days=3&window=60`,
+      );
+      const json = await res.json();
+      if (!res.ok || json.error)
+        throw new Error(json.error || "OFI fetch failed");
+
+      setData(json);
+
+      // ── Fire whale toasts for new whale events ──────────────────────────
+      const newWhales = (json.summary?.whaleEvents || []).filter(
+        (w) => !seenWhales.has(w.t),
+      );
+
+      if (newWhales.length > 0) {
+        // Only toast the most recent whale to avoid toast storms
+        const latest = newWhales[newWhales.length - 1];
+
+        setWhaleToasts((prev) => [
+          ...prev,
+          { id: `${symbol}-${latest.t}-${Date.now()}`, event: latest },
+        ]);
+
+        // Mark all as seen
+        setSeenWhales((prev) => {
+          const next = new Set(prev);
+          newWhales.forEach((w) => next.add(w.t));
+          return next;
+        });
+
+        // Auto-dismiss after 8 seconds
+        setTimeout(() => {
+          setWhaleToasts((prev) =>
+            prev.filter((t) => t.id !== `${symbol}-${latest.t}-${Date.now()}`),
+          );
+        }, 8000);
+      }
+    } catch (err) {
+      console.error("[WhaleTracker]", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol]);
+
+  useEffect(() => {
+    fetchOFI();
+    const interval = setInterval(fetchOFI, 30000); // 30s live refresh
+    return () => clearInterval(interval);
+  }, [fetchOFI]);
+
+  // Dismiss a toast
+  const dismissToast = (id) => {
+    setWhaleToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const summary = data?.summary;
+  const chartStream = data?.chartStream || [];
+
+  // Chart: color each bar by pressure side
+  const chartData = chartStream.map((d) => ({
+    ...d,
+    ofiPositive: d.normalizedOFI > 0 ? d.normalizedOFI : null,
+    ofiNegative: d.normalizedOFI < 0 ? d.normalizedOFI : null,
+    ofiWhale: d.isWhale ? d.normalizedOFI : null,
+  }));
+
+  const pressureColor =
+    summary?.overallPressure === "BUY"
+      ? C.buy
+      : summary?.overallPressure === "SELL"
+        ? C.sell
+        : C.muted;
+
+  return (
+    <>
+      {/* ── Whale Toasts ──────────────────────────────────────────────── */}
+      {whaleToasts.map((toast) => (
+        <WhaleToast
+          key={toast.id}
+          event={toast.event}
+          onDismiss={() => dismissToast(toast.id)}
+        />
+      ))}
+
+      {/* ── Main Panel ────────────────────────────────────────────────── */}
+      <div
+        style={{
+          borderRadius: "20px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          backdropFilter: "blur(20px)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "20px 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "12px",
+                background: "rgba(250,204,21,0.12)",
+                border: "1px solid rgba(250,204,21,0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Eye size={20} color={C.whale} />
+            </div>
+            <div>
+              <h2
+                style={{
+                  fontSize: "17px",
+                  fontWeight: 900,
+                  color: "#F8FAFC",
+                  fontFamily: "Inter, sans-serif",
+                  margin: 0,
+                }}
+              >
+                Whale-Shadow Tracker
+              </h2>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#64748B",
+                  margin: 0,
+                  fontFamily: "Inter, sans-serif",
+                }}
+              >
+                Order Flow Imbalance — Cont, Kukanov & Stoikov (2014)
+              </p>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              flexWrap: "wrap",
+            }}
+          >
+            {/* Symbol selector */}
+            <div style={{ display: "flex", gap: "4px" }}>
+              {SYMBOLS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setSymbol(s);
+                    setSeenWhales(new Set());
+                  }}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: "8px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    fontFamily: "Inter, sans-serif",
+                    background:
+                      symbol === s
+                        ? "rgba(91,140,255,0.2)"
+                        : "rgba(255,255,255,0.04)",
+                    border:
+                      symbol === s
+                        ? "1px solid rgba(91,140,255,0.4)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                    color: symbol === s ? "#93C5FD" : "#64748B",
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            <GlassButton
+              variant="ghost"
+              size="sm"
+              onClick={fetchOFI}
+              disabled={loading}
+              style={{
+                width: "34px",
+                height: "34px",
+                padding: 0,
+                borderRadius: "10px",
+              }}
+            >
+              <RefreshCw
+                size={14}
+                style={{
+                  animation: loading ? "spin 1s linear infinite" : "none",
+                }}
+              />
+            </GlassButton>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "20px 24px" }}>
+          {error && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: "12px",
+                marginBottom: "16px",
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                color: "#FCA5A5",
+                fontSize: "13px",
+                fontFamily: "Inter, sans-serif",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* KPI Row */}
+          {summary && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                gap: "12px",
+                marginBottom: "20px",
+              }}
+            >
+              {[
+                {
+                  label: "Net Pressure",
+                  value: summary.overallPressure,
+                  color: pressureColor,
+                  mono: false,
+                },
+                {
+                  label: "Buy Ticks",
+                  value: `${summary.buyPct}%`,
+                  color: C.buy,
+                  mono: true,
+                },
+                {
+                  label: "Sell Ticks",
+                  value: `${summary.sellPct}%`,
+                  color: C.sell,
+                  mono: true,
+                },
+                {
+                  label: "Whale Events",
+                  value: summary.whaleEventCount,
+                  color: C.whale,
+                  mono: false,
+                },
+                {
+                  label: "Whale Density",
+                  value: `${summary.whaleDensity}%`,
+                  color: C.whale,
+                  mono: true,
+                },
+                {
+                  label: "OFI p95",
+                  value: summary.ofiP95?.toExponential(2),
+                  color: "#94A3B8",
+                  mono: true,
+                },
+              ].map(({ label, value, color, mono }) => (
+                <div
+                  key={label}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "14px",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      color: "#475569",
+                      fontFamily: "Inter, sans-serif",
+                      margin: "0 0 4px 0",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {label}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 800,
+                      color,
+                      fontFamily: mono ? "monospace" : "Inter, sans-serif",
+                      margin: 0,
+                    }}
+                  >
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* OFI Chart */}
+          {chartData.length > 0 && (
+            <div style={{ marginBottom: "16px" }}>
+              <p
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#94A3B8",
+                  fontFamily: "Inter, sans-serif",
+                  marginBottom: "10px",
+                }}
+              >
+                Normalised OFI (σ) — Yellow bars = Whale events
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart
+                  data={chartData}
+                  margin={{ top: 5, right: 8, left: 0, bottom: 5 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="ofiGreenGrad"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="0%" stopColor={C.buy} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={C.buy} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="ofiRedGrad" x1="0" y1="1" x2="0" y2="0">
+                      <stop offset="0%" stopColor={C.sell} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={C.sell} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="2 6"
+                    stroke="rgba(255,255,255,0.04)"
+                  />
+                  <XAxis dataKey="t" tick={{ fill: "#475569", fontSize: 9 }} />
+                  <YAxis tick={{ fill: "#475569", fontSize: 9 }} />
+                  <Tooltip content={<OFITooltip />} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
+                  <Area
+                    type="monotone"
+                    dataKey="ofiPositive"
+                    name="Buy OFI"
+                    stroke={C.buy}
+                    strokeWidth={1.5}
+                    fill="url(#ofiGreenGrad)"
+                    dot={false}
+                    connectNulls={false}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="ofiNegative"
+                    name="Sell OFI"
+                    stroke={C.sell}
+                    strokeWidth={1.5}
+                    fill="url(#ofiRedGrad)"
+                    dot={false}
+                    connectNulls={false}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="ofiWhale"
+                    name="Whale"
+                    stroke={C.whale}
+                    strokeWidth={2.5}
+                    fill="rgba(250,204,21,0.2)"
+                    dot={{
+                      r: 4,
+                      fill: C.whale,
+                      stroke: "rgba(0,0,0,0.5)",
+                      strokeWidth: 1,
+                    }}
+                    connectNulls={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Latest Whale Events Table */}
+          {summary?.whaleEvents?.length > 0 && (
+            <div style={{ marginBottom: "16px" }}>
+              <p
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#94A3B8",
+                  fontFamily: "Inter, sans-serif",
+                  marginBottom: "8px",
+                }}
+              >
+                Recent Whale Events ({summary.whaleEventCount} total)
+              </p>
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "11px",
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        borderBottom: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      {[
+                        "Tick",
+                        "Side",
+                        "Raw OFI",
+                        "Normalised",
+                        "Signal/p95",
+                        "p95 Threshold",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            padding: "6px 10px",
+                            color: "#475569",
+                            fontWeight: 700,
+                            fontSize: "10px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.whaleEvents
+                      .slice(-8)
+                      .reverse()
+                      .map((w, i) => (
+                        <tr
+                          key={i}
+                          style={{
+                            borderBottom: "1px solid rgba(255,255,255,0.04)",
+                            background:
+                              i === 0 ? "rgba(250,204,21,0.04)" : "transparent",
+                          }}
+                        >
+                          <td
+                            style={{
+                              padding: "7px 10px",
+                              color: "#64748B",
+                              fontFamily: "mono",
+                            }}
+                          >
+                            {w.t}
+                          </td>
+                          <td style={{ padding: "7px 10px" }}>
+                            <span
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: "6px",
+                                fontWeight: 700,
+                                fontSize: "10px",
+                                color: w.isBuyPressure ? C.buy : C.sell,
+                                background: `rgba(${w.isBuyPressure ? "52,211,153" : "248,113,113"},0.1)`,
+                              }}
+                            >
+                              {w.isBuyPressure ? "BUY" : "SELL"}
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "7px 10px",
+                              color: w.isBuyPressure ? C.buy : C.sell,
+                              fontFamily: "mono",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {w.ofi?.toFixed ? w.ofi.toFixed(6) : "–"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "7px 10px",
+                              color: "#94A3B8",
+                              fontFamily: "mono",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {w.normalizedOFI?.toFixed
+                              ? `${w.normalizedOFI.toFixed(3)} σ`
+                              : "–"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "7px 10px",
+                              color: C.whale,
+                              fontWeight: 700,
+                              fontFamily: "mono",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {w.signalStrength?.toFixed
+                              ? `${w.signalStrength.toFixed(2)}×`
+                              : "–"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "7px 10px",
+                              color: "#475569",
+                              fontFamily: "mono",
+                              fontSize: "10px",
+                            }}
+                          >
+                            {w.p95?.toFixed ? w.p95.toFixed(6) : "–"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Formula Toggle */}
+          <button
+            onClick={() => setShowFormula((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "10px",
+              padding: "8px 14px",
+              cursor: "pointer",
+              color: "#64748B",
+              fontSize: "12px",
+              fontWeight: 600,
+              fontFamily: "Inter, sans-serif",
+              width: "100%",
+              transition: "all 0.2s",
+            }}
+          >
+            <Info size={13} />
+            <span style={{ flex: 1, textAlign: "left" }}>
+              Show OFI Formula & Derivation
+            </span>
+            {showFormula ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+
+          {showFormula && (
+            <div
+              style={{
+                marginTop: "10px",
+                padding: "16px",
+                borderRadius: "12px",
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid rgba(91,140,255,0.15)",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "#5B8CFF",
+                  fontFamily: "Inter, sans-serif",
+                  marginBottom: "8px",
+                }}
+              >
+                Cont, Kukanov & Stoikov (2014) — OFI Formula
+              </p>
+              <pre
+                style={{
+                  fontSize: "11px",
+                  color: "#93C5FD",
+                  fontFamily: "monospace",
+                  margin: 0,
+                  lineHeight: "1.7",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+              >
+                {`OFI_t = ΔBid_t − ΔAsk_t
+
+ΔBid_t = I(Pb,t ≥ Pb,t-1)·Qb,t  − I(Pb,t ≤ Pb,t-1)·Qb,t-1
+ΔAsk_t = I(Pa,t ≤ Pa,t-1)·Qa,t  − I(Pa,t ≥ Pa,t-1)·Qa,t-1
+
+I(·) = 1 if condition is true, 0 otherwise
+
+WHALE THRESHOLD:
+  |OFI_t| > P₉₅( |OFI|_{t-60..t} )
+
+Bid/Ask model (from OHLCV):
+  halfSpread  = 0.001 + 0.2 × σ_intraday
+  bidPrice    = close × (1 − halfSpread)
+  askPrice    = close × (1 + halfSpread)
+  σ_intraday  = (high − low) / (2 × close)  [Parkinson proxy]`}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @keyframes whaleSlideIn {
+          from { opacity: 0; transform: translateX(40px) scale(0.96); }
+          to   { opacity: 1; transform: translateX(0)   scale(1);    }
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </>
+  );
+}
+
+
+
