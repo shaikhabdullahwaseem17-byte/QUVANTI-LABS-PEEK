@@ -1,0 +1,426 @@
+"use client";
+
+import { useState } from "react";
+import {
+  Sparkles,
+  TrendingUp,
+  Shield,
+  BarChart3,
+  AlertCircle,
+  CheckCircle,
+  ArrowRight,
+  Zap,
+  Target,
+  Activity,
+} from "lucide-react";
+import InternalLayout from "@/components/InternalLayout";
+import AppNav from "@/components/AppNav";
+import AnimatedIcon from "@/components/AnimatedIcon";
+
+export default function DemoStrategyPage() {
+  const [activeStrategy, setActiveStrategy] = useState(null);
+
+  const demoStrategies = [
+    {
+      id: 1,
+      name: "BTC Breakout Strategy",
+      category: "Momentum",
+      entry: "Price breaks above $45,000 resistance with volume >150% average",
+      exit: "Take profit at +5% OR stop loss at -2%",
+      riskLevel: "Medium",
+      expectedReturn: "6-12%",
+      winRate: "68%",
+      explanation:
+        "This strategy capitalizes on Bitcoin's strong momentum breakouts above key psychological levels. It waits for confirmation through elevated trading volume to reduce false breakout risk.",
+      iconComponent: TrendingUp,
+      iconClass: "text-cyan-400",
+      color: "cyan",
+    },
+    {
+      id: 2,
+      name: "ETH Mean Reversion",
+      category: "Reversal",
+      entry: "Price drops >8% below 20-day moving average with RSI <30",
+      exit: "Exit when price returns to MA OR 3 days elapsed",
+      riskLevel: "Low",
+      expectedReturn: "4-8%",
+      winRate: "74%",
+      explanation:
+        "A conservative strategy that buys oversold Ethereum and waits for price normalization. It exploits temporary market overreactions and mean reversion principles.",
+      iconComponent: Target,
+      iconClass: "text-purple-400",
+      color: "purple",
+    },
+    {
+      id: 3,
+      name: "Altcoin Scalping",
+      category: "High Frequency",
+      entry:
+        "Micro-cap coin gains >15% in 5 minutes with social sentiment spike",
+      exit: "Take profit at +3% within 30 minutes OR stop loss -5%",
+      riskLevel: "High",
+      expectedReturn: "10-25%",
+      winRate: "52%",
+      explanation:
+        "Aggressive short-term strategy targeting explosive altcoin moves. High risk/reward ratio designed for experienced traders comfortable with volatility.",
+      iconComponent: Zap,
+      iconClass: "text-yellow-400",
+      color: "yellow",
+    },
+    {
+      id: 4,
+      name: "SOL DCA Strategy",
+      category: "Long-term",
+      entry: "Buy $100 of Solana every Monday at market open",
+      exit: "Hold for 6+ months OR sell if portfolio down >30%",
+      riskLevel: "Low",
+      expectedReturn: "15-40%",
+      winRate: "82%",
+      explanation:
+        "Dollar-cost averaging approach that removes emotion from trading. Steadily accumulates Solana regardless of price, betting on long-term growth.",
+      iconComponent: Activity,
+      iconClass: "text-emerald-400",
+      color: "emerald",
+    },
+  ];
+
+  const getRiskColor = (risk) => {
+    switch (risk) {
+      case "Low":
+        return "text-emerald-400 bg-emerald-500/20 border-emerald-500/30";
+      case "Medium":
+        return "text-yellow-400 bg-yellow-500/20 border-yellow-500/30";
+      case "High":
+        return "text-red-400 bg-red-500/20 border-red-500/30";
+      default:
+        return "text-gray-400 bg-gray-500/20 border-gray-500/30";
+    }
+  };
+
+  const getColorClasses = (color) => {
+    switch (color) {
+      case "cyan":
+        return {
+          border: "border-cyan-500/30 hover:border-cyan-500/60",
+          bg: "bg-cyan-500/10",
+          text: "text-cyan-400",
+          shadow: "shadow-cyan-500/20",
+        };
+      case "purple":
+        return {
+          border: "border-purple-500/30 hover:border-purple-500/60",
+          bg: "bg-purple-500/10",
+          text: "text-purple-400",
+          shadow: "shadow-purple-500/20",
+        };
+      case "yellow":
+        return {
+          border: "border-yellow-500/30 hover:border-yellow-500/60",
+          bg: "bg-yellow-500/10",
+          text: "text-yellow-400",
+          shadow: "shadow-yellow-500/20",
+        };
+      case "emerald":
+        return {
+          border: "border-emerald-500/30 hover:border-emerald-500/60",
+          bg: "bg-emerald-500/10",
+          text: "text-emerald-400",
+          shadow: "shadow-emerald-500/20",
+        };
+      default:
+        return {
+          border: "border-gray-500/30 hover:border-gray-500/60",
+          bg: "bg-gray-500/10",
+          text: "text-gray-400",
+          shadow: "shadow-gray-500/20",
+        };
+    }
+  };
+
+  return (
+    <InternalLayout>
+      <AppNav />
+
+      {/* Hero Section */}
+      <section className="relative overflow-hidden pt-24 pb-16 px-6">
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 text-cyan-400 px-4 py-2 rounded-full text-sm font-semibold border-2 border-cyan-500/30 shadow-sm mb-6">
+              <AnimatedIcon icon={Sparkles} size={16} variant="breathe" />
+              No API Credits Required
+            </div>
+            <h1 className="text-5xl md:text-6xl font-extrabold text-[#E5E7EB] mb-4">
+              Demo Trading Strategies
+            </h1>
+            <p className="text-xl text-[#9CA3AF] max-w-3xl mx-auto">
+              Explore realistic AI-generated trading strategies instantly. No
+              signup, no credits, just pure strategy examples.
+            </p>
+          </div>
+
+          {/* Demo Notice */}
+          <div className="max-w-4xl mx-auto mb-12">
+            <div className="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 border-2 border-yellow-500/40 rounded-xl p-6 flex items-start gap-4">
+              <AnimatedIcon
+                icon={AlertCircle}
+                size={24}
+                variant="breathe"
+                style={{ color: "#FBBF24", flexShrink: 0, marginTop: "4px" }}
+              />
+              <div>
+                <p className="text-yellow-400 font-bold mb-2">
+                  📊 Demo Simulation Notice
+                </p>
+                <p className="text-[#E5E7EB] text-sm leading-relaxed">
+                  These strategies are realistic examples for demonstration
+                  purposes. To create custom strategies tailored to your trading
+                  style, sign up and use our AI-powered Strategy Lab.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Strategy Cards Grid */}
+          <div className="grid md:grid-cols-2 gap-8 mb-12">
+            {demoStrategies.map((strategy) => {
+              const colors = getColorClasses(strategy.color);
+              const isActive = activeStrategy === strategy.id;
+
+              return (
+                <div
+                  key={strategy.id}
+                  onClick={() =>
+                    setActiveStrategy(isActive ? null : strategy.id)
+                  }
+                  className={`bg-gradient-to-br from-[#1F2937] to-[#111827] border-2 ${colors.border} rounded-2xl p-8 cursor-pointer transition-all duration-300 hover:shadow-2xl ${colors.shadow} ${
+                    isActive ? "ring-2 ring-offset-2 ring-offset-[#0B0F14]" : ""
+                  }`}
+                  style={
+                    isActive
+                      ? { ringColor: colors.text.replace("text-", "") }
+                      : {}
+                  }
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`w-14 h-14 rounded-xl ${colors.bg} border-2 ${colors.border} flex items-center justify-center shadow-lg`}
+                      >
+                        <AnimatedIcon
+                          icon={strategy.iconComponent}
+                          size={32}
+                          variant="toggle"
+                          active={isActive}
+                          className={strategy.iconClass}
+                        />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-bold text-[#E5E7EB] mb-1">
+                          {strategy.name}
+                        </h3>
+                        <span
+                          className={`text-xs px-3 py-1 rounded-full border ${colors.text} ${colors.bg}`}
+                        >
+                          {strategy.category}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="text-center">
+                      <p className="text-xs text-[#9CA3AF] mb-1">Risk Level</p>
+                      <span
+                        className={`text-sm font-bold px-3 py-1 rounded-full border ${getRiskColor(
+                          strategy.riskLevel,
+                        )}`}
+                      >
+                        {strategy.riskLevel}
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-[#9CA3AF] mb-1">
+                        Expected Return
+                      </p>
+                      <p className="text-lg font-bold text-emerald-400">
+                        {strategy.expectedReturn}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-[#9CA3AF] mb-1">Win Rate</p>
+                      <p className="text-lg font-bold text-[#E5E7EB]">
+                        {strategy.winRate}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Details (Always Visible) */}
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                        <AnimatedIcon
+                          icon={CheckCircle}
+                          size={16}
+                          variant="breathe"
+                        />
+                        Entry Condition
+                      </p>
+                      <p className="text-sm text-[#E5E7EB] bg-[#0B0F14] rounded-lg p-3 border border-[#374151]">
+                        {strategy.entry}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-purple-400 mb-2 flex items-center gap-2">
+                        <AnimatedIcon
+                          icon={CheckCircle}
+                          size={16}
+                          variant="breathe"
+                        />
+                        Exit Condition
+                      </p>
+                      <p className="text-sm text-[#E5E7EB] bg-[#0B0F14] rounded-lg p-3 border border-[#374151]">
+                        {strategy.exit}
+                      </p>
+                    </div>
+
+                    {/* Expandable Explanation */}
+                    {isActive && (
+                      <div className="pt-4 border-t-2 border-[#374151] animate-fadeIn">
+                        <p className="text-sm font-semibold text-[#E5E7EB] mb-2 flex items-center gap-2">
+                          <AnimatedIcon
+                            icon={BarChart3}
+                            size={16}
+                            variant="breathe"
+                            className={colors.text}
+                          />
+                          Strategy Explanation
+                        </p>
+                        <p className="text-sm text-[#9CA3AF] leading-relaxed">
+                          {strategy.explanation}
+                        </p>
+
+                        {/* Advanced Validation Results */}
+                        {strategy.advanced && strategy.validation && (
+                          <div className="mt-6 space-y-3">
+                            <p className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                              <AnimatedIcon
+                                icon={Shield}
+                                size={16}
+                                variant="breathe"
+                              />
+                              Advanced Validation Results
+                            </p>
+
+                            {strategy.validation.monteCarlo && (
+                              <div className="bg-[#1F2937] rounded-lg p-3 border border-cyan-500/30">
+                                <p className="text-xs text-cyan-400 font-semibold mb-1">
+                                  Monte Carlo Simulation (1000 runs)
+                                </p>
+                                <p className="text-sm text-[#E5E7EB]">
+                                  {strategy.validation.monteCarlo}
+                                </p>
+                              </div>
+                            )}
+
+                            {strategy.validation.walkForward && (
+                              <div className="bg-[#1F2937] rounded-lg p-3 border border-purple-500/30">
+                                <p className="text-xs text-purple-400 font-semibold mb-1">
+                                  Walk-Forward Analysis
+                                </p>
+                                <p className="text-sm text-[#E5E7EB]">
+                                  {strategy.validation.walkForward}
+                                </p>
+                              </div>
+                            )}
+
+                            {strategy.validation.overfitWarning && (
+                              <div className="bg-red-900/20 rounded-lg p-3 border-2 border-red-500/40">
+                                <p className="text-xs text-red-400 font-semibold mb-1 flex items-center gap-2">
+                                  <AnimatedIcon
+                                    icon={AlertCircle}
+                                    size={14}
+                                    variant="alert"
+                                    active={true}
+                                  />
+                                  Anti-Overfit Warning
+                                </p>
+                                <p className="text-sm text-red-300">
+                                  {strategy.validation.overfitWarning}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Click Indicator */}
+                  <div className="mt-6 text-center">
+                    <button
+                      className={`text-sm ${colors.text} hover:underline flex items-center gap-2 mx-auto`}
+                    >
+                      {isActive ? "Hide Details" : "View Full Strategy"}
+                      <AnimatedIcon
+                        icon={ArrowRight}
+                        size={16}
+                        variant="toggle"
+                        active={isActive}
+                        className={
+                          isActive ? `${colors.text} rotate-90` : colors.text
+                        }
+                        style={{
+                          transition:
+                            "transform 300ms cubic-bezier(0.175,0.885,0.32,1.275)",
+                        }}
+                      />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* CTA Section */}
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border-2 border-cyan-500/30 rounded-2xl p-8 text-center">
+              <h3 className="text-3xl font-bold text-[#E5E7EB] mb-4">
+                Ready to Build Your Own Strategy?
+              </h3>
+              <p className="text-[#9CA3AF] text-lg mb-8 max-w-2xl mx-auto">
+                Use our AI-powered Strategy Lab to create custom trading agents
+                in under 60 seconds—no coding required.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <a
+                  href="/dashboard"
+                  className="bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-600 hover:to-purple-700 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-2xl shadow-cyan-500/40 hover:shadow-cyan-500/60 hover:scale-105 flex items-center justify-center gap-2"
+                >
+                  <AnimatedIcon icon={Sparkles} size={22} variant="spring" />
+                  Create Your First Agent Free
+                </a>
+                <a
+                  href="/strategy-lab"
+                  className="bg-[#1F2937] hover:bg-[#374151] text-[#E5E7EB] border-2 border-[#374151] hover:border-cyan-500/50 px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-lg flex items-center justify-center gap-2"
+                >
+                  <AnimatedIcon
+                    icon={Zap}
+                    size={22}
+                    variant="spring"
+                    style={{ color: "#C084FC" }}
+                  />
+                  Visit Strategy Lab
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </InternalLayout>
+  );
+}
+
+
+
