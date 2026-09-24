@@ -1,0 +1,136 @@
+"use client";
+
+import {
+  Brain,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle,
+  Target,
+  BarChart3,
+} from "lucide-react";
+
+/**
+ * EXPLAINABLE AI SIGNAL COMPONENT
+ * Shows WHY the AI made a decision with full transparency
+ */
+export default function ExplainableSignal({ signal }) {
+  if (!signal) return null;
+
+  const {
+    asset,
+    action,
+    confidence,
+    reasoning,
+    featureImportance,
+    probabilityAnalysis,
+  } = signal;
+
+  return (
+    <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border-2 border-purple-500/30 rounded-2xl p-6 relative overflow-hidden">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Brain className="text-purple-400" size={24} />
+            <h3 className="text-2xl font-black text-white">
+              AI Decision Rationale
+            </h3>
+          </div>
+          <p className="text-gray-400 text-sm">
+            Full transparency - not a black box
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-3xl font-black text-white">{confidence}%</div>
+          <p className="text-xs text-gray-500">Confidence</p>
+        </div>
+      </div>
+
+      {/* Primary Reasoning */}
+      <div className="bg-black/40 rounded-xl p-5 mb-6 border border-purple-500/20">
+        <div className="flex items-start gap-3 mb-3">
+          <Target className="text-cyan-400 flex-shrink-0 mt-1" size={20} />
+          <div>
+            <h4 className="text-white font-bold mb-2">
+              Why {action} {asset}?
+            </h4>
+            <p className="text-gray-300 text-sm leading-relaxed">{reasoning}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Feature Importance Breakdown */}
+      {featureImportance && (
+        <div className="mb-6">
+          <h4 className="text-white font-bold mb-3 flex items-center gap-2">
+            <BarChart3 className="text-emerald-400" size={18} />
+            Feature Importance
+          </h4>
+          <div className="space-y-3">
+            {featureImportance.map((feature, idx) => (
+              <div key={idx} className="bg-black/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-300">
+                    {feature.name}
+                  </span>
+                  <span className="text-sm font-bold text-cyan-400">
+                    {feature.weight}%
+                  </span>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full bg-gray-800 rounded-full h-2">
+                  <div
+                    className="bg-gradient-to-r from-cyan-500 to-purple-500 h-2 rounded-full transition-all"
+                    style={{ width: `${feature.weight}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{feature.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Probability Analysis */}
+      {probabilityAnalysis && (
+        <div className="bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 rounded-xl p-4 border border-emerald-500/30">
+          <h4 className="text-white font-bold mb-3 flex items-center gap-2">
+            <TrendingUp className="text-emerald-400" size={18} />
+            Historical Probability
+          </h4>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-gray-400 mb-1">Reversal Probability</p>
+              <p className="text-2xl font-black text-emerald-400">
+                {probabilityAnalysis.reversalChance}%
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-400 mb-1">Based On</p>
+              <p className="text-white font-bold">
+                {probabilityAnalysis.sampleSize} similar setups
+              </p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-gray-400 mb-1">Historical Correlation</p>
+              <p className="text-white font-semibold">
+                {probabilityAnalysis.correlation}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Badge */}
+      <div className="mt-6 flex items-center gap-2 px-4 py-2 bg-purple-500/20 rounded-lg border border-purple-500/40">
+        <CheckCircle className="text-purple-400" size={16} />
+        <span className="text-xs text-purple-300 font-semibold">
+          This reasoning is mathematically derived, not AI-generated text
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
+
