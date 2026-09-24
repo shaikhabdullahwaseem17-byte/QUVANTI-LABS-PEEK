@@ -1,0 +1,222 @@
+"use client";
+import { useEffect, useRef } from "react";
+
+const NODE_COLORS = [
+  { hex: "#5B8CFF", r: 91, g: 140, b: 255 },
+  { hex: "#34D399", r: 52, g: 211, b: 153 },
+  { hex: "#8A7CFF", r: 138, g: 124, b: 255 },
+  { hex: "#F59E0B", r: 245, g: 158, b: 11 },
+  { hex: "#EC4899", r: 236, g: 72, b: 153 },
+];
+
+const NODE_COUNT = 78;
+const MAX_PARTICLES = 130;
+
+export default function NeuralTradingCanvas({ className = "" }) {
+  const canvasRef = useRef(null);
+  const stateRef = useRef(null);
+  const mouseRef = useRef({ x: -9999, y: -9999 });
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+
+    const state = {
+      nodes: [],
+      particles: [],
+      width: 0,
+      height: 0,
+      frame: 0,
+      raf: null,
+    };
+    stateRef.current = state;
+
+    // ── Spawn nodes ─────────────────────────────────────────────
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const col = NODE_COLORS[Math.floor(Math.random() * NODE_COLORS.length)];
+      state.nodes.push({
+        x: Math.random(),
+        y: Math.random(),
+        vx: (Math.random() - 0.5) * 0.00016,
+        vy: (Math.random() - 0.5) * 0.00016,
+        color: col,
+        baseSize: 1.1 + Math.random() * 2.6,
+        pulse: Math.random() * Math.PI * 2,
+        pulseSpeed: 0.014 + Math.random() * 0.024,
+      });
+    }
+
+    function resize() {
+      const p = canvas.parentElement;
+      state.width = canvas.width = p ? p.offsetWidth : window.innerWidth;
+      state.height = canvas.height = p ? p.offsetHeight : window.innerHeight;
+    }
+
+    function draw() {
+      const { width, height, nodes, particles } = state;
+      const mouse = mouseRef.current;
+      ctx.clearRect(0, 0, width, height);
+      state.frame++;
+
+      const MAX_DIST_PX = Math.min(width, height) * 0.24;
+
+      // ── Update nodes + edges ───────────────────────────────────
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i];
+
+        // Animate
+        a.pulse += a.pulseSpeed;
+        a.x += a.vx;
+        a.y += a.vy;
+
+        // Bounce
+        if (a.x < 0.02 || a.x > 0.98) {
+          a.vx *= -1;
+          a.x = Math.max(0.02, Math.min(0.98, a.x));
+        }
+        if (a.y < 0.02 || a.y > 0.98) {
+          a.vy *= -1;
+          a.y = Math.max(0.02, Math.min(0.98, a.y));
+        }
+
+        // Mouse repulsion (normalised coords)
+        const mxn = mouse.x / width;
+        const myn = mouse.y / height;
+        const dmx = a.x - mxn;
+        const dmy = a.y - myn;
+        const dmSq = dmx * dmx + dmy * dmy;
+        if (dmSq < 0.018 && dmSq > 0.0001) {
+          const dm = Math.sqrt(dmSq);
+          const f = (0.018 - dmSq) * 0.045;
+          a.vx += (dmx / dm) * f;
+          a.vy += (dmy / dm) * f;
+        }
+
+        // Speed cap
+        const spd = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+        if (spd > 0.0007) {
+          a.vx = (a.vx / spd) * 0.0007;
+          a.vy = (a.vy / spd) * 0.0007;
+        }
+
+        // Edges to later nodes
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b = nodes[j];
+          const dx = (a.x - b.x) * width;
+          const dy = (a.y - b.y) * height;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < MAX_DIST_PX) {
+            const t = 1 - dist / MAX_DIST_PX;
+            ctx.beginPath();
+            ctx.moveTo(a.x * width, a.y * height);
+            ctx.lineTo(b.x * width, b.y * height);
+            ctx.strokeStyle = `rgba(91,140,255,${(t * 0.13).toFixed(3)})`;
+            ctx.lineWidth = 0.55;
+            ctx.stroke();
+
+            // Particle spawn along edges
+            if (Math.random() < 0.0007 && particles.length < MAX_PARTICLES) {
+              const useA = Math.random() > 0.5;
+              particles.push({
+                sx: a.x,
+                sy: a.y,
+                ex: b.x,
+                ey: b.y,
+                t: 0,
+                speed: 0.005 + Math.random() * 0.008,
+                color: useA ? a.color : b.color,
+              });
+            }
+          }
+        }
+      }
+
+      // ── Particles ─────────────────────────────────────────────
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.t += p.speed;
+        if (p.t >= 1) {
+          particles.splice(i, 1);
+          continue;
+        }
+        const px = (p.sx + (p.ex - p.sx) * p.t) * width;
+        const py = (p.sy + (p.ey - p.sy) * p.t) * height;
+        const { r, g, b, hex } = p.color;
+        const alpha = ((1 - p.t) * 0.92).toFixed(2);
+        ctx.beginPath();
+        ctx.arc(px, py, 1.7, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.shadowBlur = 7;
+        ctx.shadowColor = hex;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // ── Nodes ─────────────────────────────────────────────────
+      for (const n of nodes) {
+        const nx = n.x * width;
+        const ny = n.y * height;
+        const pf = 1 + Math.sin(n.pulse) * 0.22;
+        const r = n.baseSize * pf;
+        const { r: cr, g: cg, b: cb, hex } = n.color;
+
+        // Outer glow halo
+        const grd = ctx.createRadialGradient(nx, ny, 0, nx, ny, r * 5.5);
+        grd.addColorStop(0, `rgba(${cr},${cg},${cb},0.22)`);
+        grd.addColorStop(0.4, `rgba(${cr},${cg},${cb},0.07)`);
+        grd.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.beginPath();
+        ctx.arc(nx, ny, r * 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+
+        // Core dot
+        ctx.beginPath();
+        ctx.arc(nx, ny, r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},1)`;
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = hex;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // ── Moving scan line ───────────────────────────────────────
+      const scanY = (state.frame * 0.55) % height;
+      ctx.fillStyle = "rgba(255,255,255,0.012)";
+      ctx.fillRect(0, scanY, width, 1.2);
+
+      state.raf = requestAnimationFrame(draw);
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+    draw();
+
+    return () => {
+      if (state.raf) cancelAnimationFrame(state.raf);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const onLeave = () => {
+    mouseRef.current = { x: -9999, y: -9999 };
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={`w-full h-full ${className}`}
+      style={{ display: "block" }}
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+    />
+  );
+}
+
+
+
