@@ -1,0 +1,1095 @@
+"use client";
+
+/**
+ * QUVANTI LABS — QUANTITATIVE ANALYSIS PANEL
+ * ─────────────────────────────────────────────
+ * Hurst Exponent (R/S Analysis)          → regime classification
+ * Fractional Differentiation (d=0.4)     → stationarity with memory
+ * Monte Carlo GBM (1,000 paths)          → 5th/50th/95th percentiles + ruin prob
+ * Chaos Monkey (3σ fat-tail injection)   → Survival Rating A+ → F
+ * Market Manifold (20×20 surface)        → institutional liquidity heatmap
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Activity,
+  BarChart3,
+  Brain,
+  AlertTriangle,
+  Target,
+  RefreshCw,
+  Play,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import {
+  computeHurstExponent,
+  fractionalDiff,
+  monteCarloGBM,
+  runStressTest,
+  computeMarketManifold,
+  liquidityToColor,
+} from "@/app/api/utils/quant";
+
+const INPUT_STYLE = {
+  padding: "7px 10px",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "6px",
+  color: "#ffffff",
+  fontSize: "12px",
+  fontFamily: "monospace",
+  outline: "none",
+  width: "100%",
+  boxSizing: "border-box",
+};
+
+// ─── HURST PANEL ─────────────────────────────────────────────────────────────
+function HurstPanel({ timeSeriesData }) {
+  const [hurstResult, setHurstResult] = useState(null);
+  const [fracDiffResult, setFracDiffResult] = useState(null);
+  const [hurstError, setHurstError] = useState(null);
+
+  useEffect(() => {
+    if (!Array.isArray(timeSeriesData) || timeSeriesData.length < 20) return;
+    try {
+      const prices = timeSeriesData
+        .map((d) => parseFloat(d.value || d.price || 0))
+        .filter((v) => v > 0);
+      if (prices.length < 20) {
+        setHurstError(
+          "Insufficient price data for Hurst analysis (need ≥20 data points).",
+        );
+        return;
+      }
+      const hurst = computeHurstExponent(prices);
+      setHurstResult(hurst);
+      const fd = fractionalDiff(prices, 0.4);
+      setFracDiffResult(fd);
+    } catch (err) {
+      setHurstError(err.message);
+    }
+  }, [timeSeriesData]);
+
+  return (
+    <div
+      className="rounded-2xl p-6"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-5">
+        <Activity size={16} style={{ color: "#5B8CFF" }} />
+        <h3 className="text-[15px] font-bold text-white">
+          Hurst Exponent — R/S Analysis
+        </h3>
+        <span
+          className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded"
+          style={{ background: "rgba(91,140,255,0.1)", color: "#5B8CFF" }}
+        >
+          H = log(R/S) / log(n)
+        </span>
+      </div>
+
+      {hurstError && (
+        <div
+          className="flex items-center gap-2 p-3 rounded-lg text-[12px] mb-4"
+          style={{
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            color: "#ef4444",
+          }}
+        >
+          <AlertTriangle size={13} /> {hurstError}
+        </div>
+      )}
+
+      {!hurstResult && !hurstError && (
+        <p className="text-[12px]" style={{ color: "#475569" }}>
+          Hurst analysis requires ≥20 portfolio data points. Generate more
+          trading history to activate this engine.
+        </p>
+      )}
+
+      {hurstResult && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <div className="flex items-end gap-4 mb-4">
+              <div>
+                <p
+                  className="text-[10px] font-mono uppercase tracking-[0.12em] mb-1"
+                  style={{ color: "#475569" }}
+                >
+                  Hurst Exponent H
+                </p>
+                <div
+                  className="text-[48px] font-black leading-none"
+                  style={{ color: hurstResult.color }}
+                >
+                  {hurstResult.H.toFixed(3)}
+                </div>
+              </div>
+              <div className="mb-2">
+                <span
+                  className="px-3 py-1.5 rounded-md text-[11px] font-black tracking-[0.1em]"
+                  style={{
+                    background: `${hurstResult.color}18`,
+                    border: `1px solid ${hurstResult.color}40`,
+                    color: hurstResult.color,
+                  }}
+                >
+                  {hurstResult.label}
+                </span>
+              </div>
+            </div>
+            <p
+              className="text-[12px] leading-relaxed mb-4"
+              style={{ color: "#94a3b8" }}
+            >
+              {hurstResult.interpretation}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Range (R)", value: hurstResult.R.toFixed(6) },
+                { label: "Std Dev (S)", value: hurstResult.S.toFixed(6) },
+                { label: "R/S Ratio", value: hurstResult.RS.toFixed(4) },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="p-2.5 rounded-lg"
+                  style={{
+                    background: "rgba(0,0,0,0.3)",
+                    border: "1px solid rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <p
+                    className="text-[9px] font-mono uppercase tracking-[0.1em] mb-1"
+                    style={{ color: "#475569" }}
+                  >
+                    {item.label}
+                  </p>
+                  <p className="text-[12px] font-black font-mono text-white">
+                    {item.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p
+              className="text-[10px] font-mono uppercase tracking-[0.12em] mb-2"
+              style={{ color: "#475569" }}
+            >
+              Cumulative Deviation Series
+            </p>
+            <ResponsiveContainer width="100%" height={120}>
+              <AreaChart data={hurstResult.cumDev.map((v, i) => ({ i, v }))}>
+                <defs>
+                  <linearGradient id="cumDevGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="5%"
+                      stopColor={hurstResult.color}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={hurstResult.color}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="i" hide />
+                <YAxis hide />
+                <Area
+                  type="monotone"
+                  dataKey="v"
+                  stroke={hurstResult.color}
+                  fill="url(#cumDevGrad)"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+
+            {fracDiffResult && (
+              <div
+                className="mt-3 p-3 rounded-lg"
+                style={{
+                  background: "rgba(0,0,0,0.25)",
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                <p
+                  className="text-[10px] font-mono uppercase tracking-[0.12em] mb-2"
+                  style={{ color: "#475569" }}
+                >
+                  Fractional Diff (d=0.4) — {fracDiffResult.lagCount} lags ·
+                  Memory Preserved
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                  <div>
+                    <span style={{ color: "#475569" }}>Mean: </span>
+                    <span className="text-white">
+                      {fracDiffResult.stats.mean}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#475569" }}>σ: </span>
+                    <span className="text-white">
+                      {fracDiffResult.stats.stdDev}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#475569" }}>Stationary: </span>
+                    <span
+                      style={{
+                        color: fracDiffResult.stats.isLikelyStationary
+                          ? "#10b981"
+                          : "#f59e0b",
+                      }}
+                    >
+                      {fracDiffResult.stats.isLikelyStationary
+                        ? "LIKELY YES"
+                        : "UNCERTAIN"}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#475569" }}>Series n: </span>
+                    <span className="text-white">{fracDiffResult.stats.n}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MONTE CARLO PANEL ───────────────────────────────────────────────────────
+function MonteCarloPanel() {
+  const [mcParams, setMcParams] = useState({
+    S0: 10000,
+    mu: 0.15,
+    sigma: 0.25,
+    T: 1,
+    paths: 1000,
+  });
+  const [mcResult, setMcResult] = useState(null);
+  const [mcRunning, setMcRunning] = useState(false);
+
+  const runMonteCarlo = useCallback(() => {
+    setMcRunning(true);
+    setTimeout(() => {
+      try {
+        const result = monteCarloGBM({ ...mcParams, seed: 42 });
+        setMcResult(result);
+      } catch (err) {
+        console.error("[QuantAnalysis] Monte Carlo error:", err.message);
+      } finally {
+        setMcRunning(false);
+      }
+    }, 50);
+  }, [mcParams]);
+
+  return (
+    <div
+      className="rounded-2xl p-6"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={16} style={{ color: "#8A7CFF" }} />
+          <h3 className="text-[15px] font-bold text-white">
+            Monte Carlo — Geometric Brownian Motion
+          </h3>
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded"
+            style={{ background: "rgba(138,124,255,0.1)", color: "#8A7CFF" }}
+          >
+            S_t = S_0·exp((μ−σ²/2)t + σW_t)
+          </span>
+        </div>
+        <button
+          onClick={runMonteCarlo}
+          disabled={mcRunning}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-bold transition-all hover:scale-[1.03] disabled:opacity-50"
+          style={{
+            background: "rgba(138,124,255,0.15)",
+            border: "1px solid rgba(138,124,255,0.3)",
+            color: "#8A7CFF",
+          }}
+        >
+          {mcRunning ? (
+            <RefreshCw
+              size={12}
+              style={{ animation: "qSpin 1s linear infinite" }}
+            />
+          ) : (
+            <Play size={12} />
+          )}
+          {mcRunning
+            ? "Simulating..."
+            : `Run ${mcParams.paths.toLocaleString()} Paths`}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+        {[
+          { key: "S0", label: "Initial Capital ($)", step: 1000, min: 100 },
+          { key: "mu", label: "Annual Return (μ)", step: 0.01, min: -0.99 },
+          { key: "sigma", label: "Volatility (σ)", step: 0.01, min: 0.01 },
+          { key: "T", label: "Horizon (years)", step: 0.25, min: 0.25 },
+          { key: "paths", label: "Paths (N)", step: 100, min: 100, max: 1000 },
+        ].map(({ key, label, step, min, max }) => (
+          <div key={key}>
+            <p
+              className="text-[10px] font-mono uppercase tracking-[0.1em] mb-1.5"
+              style={{ color: "#475569" }}
+            >
+              {label}
+            </p>
+            <input
+              type="number"
+              value={mcParams[key]}
+              step={step}
+              min={min}
+              max={max}
+              onChange={(e) =>
+                setMcParams((prev) => ({
+                  ...prev,
+                  [key]: parseFloat(e.target.value) || min,
+                }))
+              }
+              style={INPUT_STYLE}
+            />
+          </div>
+        ))}
+      </div>
+
+      {mcResult && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            {[
+              {
+                label: "P5 Final",
+                value: `$${mcResult.percentiles.p5.toLocaleString()}`,
+                color: "#ef4444",
+              },
+              {
+                label: "P50 Median",
+                value: `$${mcResult.percentiles.p50.toLocaleString()}`,
+                color: "#f59e0b",
+              },
+              {
+                label: "P95 Final",
+                value: `$${mcResult.percentiles.p95.toLocaleString()}`,
+                color: "#10b981",
+              },
+              {
+                label: "P(Ruin)",
+                value: `${mcResult.probabilityOfRuin.toFixed(2)}%`,
+                color: mcResult.probabilityOfRuin > 5 ? "#ef4444" : "#10b981",
+              },
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="p-3 rounded-xl"
+                style={{
+                  background: "rgba(0,0,0,0.3)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <p
+                  className="text-[9px] font-mono uppercase tracking-[0.1em] mb-1"
+                  style={{ color: "#475569" }}
+                >
+                  {s.label}
+                </p>
+                <p
+                  className="text-[18px] font-black font-mono"
+                  style={{ color: s.color }}
+                >
+                  {s.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart
+              data={mcResult.chartData}
+              margin={{ top: 5, right: 10, bottom: 0, left: 10 }}
+            >
+              <defs>
+                <linearGradient id="p95Grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="p5Grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(255,255,255,0.04)"
+              />
+              <XAxis
+                dataKey="day"
+                stroke="#334155"
+                tick={{ fill: "#475569", fontSize: 10 }}
+                label={{
+                  value: "Trading Days",
+                  position: "insideBottom",
+                  fill: "#475569",
+                  fontSize: 10,
+                }}
+              />
+              <YAxis
+                stroke="#334155"
+                tick={{ fill: "#475569", fontSize: 10 }}
+                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#0a0f1a",
+                  border: "1px solid #1e293b",
+                  borderRadius: "8px",
+                  fontSize: 11,
+                }}
+                labelStyle={{ color: "#94a3b8" }}
+                formatter={(v, name) => [
+                  `$${parseFloat(v).toLocaleString("en-US", { minimumFractionDigits: 0 })}`,
+                  name,
+                ]}
+              />
+              <Legend
+                iconSize={10}
+                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
+              />
+              <Area
+                type="monotone"
+                dataKey="p5"
+                stroke="#ef4444"
+                fill="url(#p5Grad)"
+                strokeWidth={1.5}
+                dot={false}
+                name="5th Percentile"
+              />
+              <Area
+                type="monotone"
+                dataKey="p50"
+                stroke="#f59e0b"
+                fill="none"
+                strokeWidth={2}
+                dot={false}
+                name="Median (50th)"
+                strokeDasharray="6 3"
+              />
+              <Area
+                type="monotone"
+                dataKey="p95"
+                stroke="#10b981"
+                fill="url(#p95Grad)"
+                strokeWidth={1.5}
+                dot={false}
+                name="95th Percentile"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+
+          <div className="mt-3 flex flex-wrap gap-4 text-[11px]">
+            <span style={{ color: "#475569" }}>
+              Theoretical E[S_T]:{" "}
+              <span className="font-mono text-white">
+                ${mcResult.stats.theoreticalMean.toLocaleString()}
+              </span>
+            </span>
+            <span style={{ color: "#475569" }}>
+              Simulated Mean:{" "}
+              <span className="font-mono text-white">
+                ${mcResult.stats.mean.toLocaleString()}
+              </span>
+            </span>
+            <span style={{ color: "#475569" }}>
+              σ of Finals:{" "}
+              <span className="font-mono text-white">
+                ${mcResult.stats.stdDev.toLocaleString()}
+              </span>
+            </span>
+            <span style={{ color: "#475569" }}>
+              Survived:{" "}
+              <span className="font-mono text-white">
+                {mcResult.stats.survivedCount}/{mcParams.paths}
+              </span>
+            </span>
+          </div>
+        </>
+      )}
+
+      {!mcResult && !mcRunning && (
+        <div
+          className="flex items-center justify-center h-32 rounded-xl"
+          style={{
+            background: "rgba(0,0,0,0.2)",
+            border: "1px solid rgba(255,255,255,0.04)",
+          }}
+        >
+          <p className="text-[13px]" style={{ color: "#334155" }}>
+            Set parameters above and click Run to simulate{" "}
+            {mcParams.paths.toLocaleString()} GBM paths.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CHAOS MONKEY PANEL ──────────────────────────────────────────────────────
+function ChaosMonkeyPanel() {
+  const [stressResult, setStressResult] = useState(null);
+  const [stressRunning, setStressRunning] = useState(false);
+  const [stressOverlay, setStressOverlay] = useState(false);
+  const [sigmaInput, setSigmaInput] = useState(0.25);
+
+  const dailyShock = ((sigmaInput / Math.sqrt(252)) * 3 * 100).toFixed(3);
+
+  const runChaosMonkey = useCallback(() => {
+    setStressRunning(true);
+    setStressOverlay(true);
+    setTimeout(() => {
+      try {
+        const result = runStressTest({
+          initialCapital: 10000,
+          returns: [],
+          annualizedSigma: sigmaInput,
+          seed: 99,
+        });
+        setStressResult(result);
+      } catch (err) {
+        console.error("[QuantAnalysis] Stress test error:", err.message);
+      } finally {
+        setStressRunning(false);
+        setTimeout(() => setStressOverlay(false), 800);
+      }
+    }, 1200);
+  }, [sigmaInput]);
+
+  return (
+    <div
+      className="relative rounded-2xl p-6 overflow-hidden"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      {stressOverlay && (
+        <div
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center"
+          style={{
+            background: "rgba(239,68,68,0.12)",
+            backdropFilter: "blur(2px)",
+          }}
+        >
+          <AlertTriangle
+            size={36}
+            style={{ color: "#ef4444", margin: "0 auto 8px" }}
+          />
+          <p className="text-[14px] font-black text-white tracking-[0.1em] uppercase">
+            INJECTING 3σ SHOCK EVENT
+          </p>
+          <p className="text-[11px] mt-1" style={{ color: "#ef4444" }}>
+            Simulating fat-tail scenario...
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={16} style={{ color: "#ef4444" }} />
+          <h3 className="text-[15px] font-bold text-white">
+            Chaos Monkey — Fat-Tail Stress Test
+          </h3>
+          <span
+            className="text-[10px] font-mono px-2 py-0.5 rounded"
+            style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
+          >
+            −3σ shock injection
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div>
+            <p
+              className="text-[9px] font-mono uppercase tracking-[0.1em] mb-1"
+              style={{ color: "#475569" }}
+            >
+              Annual σ
+            </p>
+            <input
+              type="number"
+              value={sigmaInput}
+              step={0.01}
+              min={0.01}
+              max={2}
+              onChange={(e) =>
+                setSigmaInput(parseFloat(e.target.value) || 0.01)
+              }
+              style={{ ...INPUT_STYLE, width: "80px" }}
+            />
+          </div>
+          <button
+            onClick={runChaosMonkey}
+            disabled={stressRunning}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-bold transition-all hover:scale-[1.03] disabled:opacity-50"
+            style={{
+              background: "rgba(239,68,68,0.12)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              color: "#ef4444",
+            }}
+          >
+            {stressRunning ? (
+              <RefreshCw
+                size={12}
+                style={{ animation: "qSpin 1s linear infinite" }}
+              />
+            ) : (
+              <AlertTriangle size={12} />
+            )}
+            {stressRunning ? "Stress testing..." : "Run Stress Test"}
+          </button>
+        </div>
+      </div>
+
+      <p
+        className="text-[12px] leading-relaxed mb-4"
+        style={{ color: "#64748b" }}
+      >
+        Injects a 3-standard-deviation negative shock at the strategy peak —
+        worst-case timing. With σ={sigmaInput}, the single-day shock magnitude
+        is{" "}
+        <span className="font-mono" style={{ color: "#ef4444" }}>
+          −{dailyShock}%
+        </span>
+        . Survival Rating: A+ (exceptional resilience) → F (total ruin).
+      </p>
+
+      {stressResult && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <div className="flex items-center gap-4 mb-4">
+              <div
+                className="text-[64px] font-black leading-none"
+                style={{ color: stressResult.ratingColor }}
+              >
+                {stressResult.survivalRating}
+              </div>
+              <div>
+                <p
+                  className="text-[10px] font-mono uppercase tracking-[0.12em] mb-1"
+                  style={{ color: "#475569" }}
+                >
+                  Survival Rating
+                </p>
+                <p
+                  className="text-[12px] leading-snug"
+                  style={{ color: stressResult.ratingColor }}
+                >
+                  {stressResult.ratingDesc}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                {
+                  label: "Max Drawdown",
+                  value: `${stressResult.maxDrawdownPct.toFixed(2)}%`,
+                  color: "#ef4444",
+                },
+                {
+                  label: "Shock Magnitude",
+                  value: `${stressResult.shockMagnitude.toFixed(2)}%`,
+                  color: "#f59e0b",
+                },
+                {
+                  label: "Final Equity",
+                  value: `$${stressResult.finalEquity.toLocaleString()}`,
+                  color: stressResult.ratingColor,
+                },
+                {
+                  label: "Capital Preserved",
+                  value: `${stressResult.capitalPreserved.toFixed(1)}%`,
+                  color:
+                    stressResult.capitalPreserved > 90 ? "#10b981" : "#ef4444",
+                },
+              ].map((s) => (
+                <div
+                  key={s.label}
+                  className="p-2.5 rounded-lg"
+                  style={{
+                    background: "rgba(0,0,0,0.3)",
+                    border: "1px solid rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <p
+                    className="text-[9px] font-mono uppercase tracking-[0.1em] mb-1"
+                    style={{ color: "#475569" }}
+                  >
+                    {s.label}
+                  </p>
+                  <p
+                    className="text-[15px] font-black font-mono"
+                    style={{ color: s.color }}
+                  >
+                    {s.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p
+              className="text-[10px] font-mono uppercase tracking-[0.12em] mb-2"
+              style={{ color: "#475569" }}
+            >
+              Stressed vs Baseline Equity Curve
+            </p>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart margin={{ top: 5, right: 5, bottom: 0, left: 5 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="rgba(255,255,255,0.04)"
+                />
+                <XAxis dataKey="day" hide />
+                <YAxis hide />
+                <Tooltip
+                  contentStyle={{
+                    background: "#0a0f1a",
+                    border: "1px solid #1e293b",
+                    borderRadius: "6px",
+                    fontSize: 10,
+                  }}
+                  formatter={(v) => [`$${parseFloat(v).toFixed(0)}`]}
+                />
+                <Line
+                  data={stressResult.chartBaseline}
+                  type="monotone"
+                  dataKey="equity"
+                  stroke="rgba(91,140,255,0.5)"
+                  strokeWidth={1.5}
+                  dot={false}
+                  name="Baseline"
+                  strokeDasharray="5 3"
+                />
+                <Line
+                  data={stressResult.chartStressed}
+                  type="monotone"
+                  dataKey="equity"
+                  stroke={stressResult.ratingColor}
+                  strokeWidth={2}
+                  dot={false}
+                  name="Stressed"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="flex gap-4 mt-1 text-[10px] font-mono">
+              <span style={{ color: "rgba(91,140,255,0.7)" }}>── Baseline</span>
+              <span style={{ color: stressResult.ratingColor }}>
+                ── Stressed (+3σ shock)
+              </span>
+              <span style={{ color: "#475569" }}>
+                Shock day: {stressResult.shockInjectedAtDay}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!stressResult && !stressRunning && (
+        <div
+          className="flex items-center justify-center h-20 rounded-xl"
+          style={{
+            background: "rgba(0,0,0,0.15)",
+            border: "1px solid rgba(255,255,255,0.04)",
+          }}
+        >
+          <p className="text-[12px]" style={{ color: "#334155" }}>
+            Click Run Stress Test to inject a 3σ fat-tail shock.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MARKET MANIFOLD PANEL ───────────────────────────────────────────────────
+function MarketManifoldPanel() {
+  const [manifold] = useState(() => computeMarketManifold());
+  const [hovered, setHovered] = useState(null);
+
+  return (
+    <div
+      className="rounded-2xl p-6"
+      style={{
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Target size={16} style={{ color: "#10b981" }} />
+        <h3 className="text-[15px] font-bold text-white">
+          Market Manifold — Institutional Liquidity Surface
+        </h3>
+      </div>
+      <p className="text-[12px] mb-4" style={{ color: "#475569" }}>
+        20×20 institutional liquidity surface. X: Volatility Index · Y: ADX
+        Trend Strength. Red (#FF0000) = High Chaos. Green (#00FF00) = Market
+        Equilibrium.
+      </p>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
+        <div className="flex gap-2 items-start">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "18px",
+            }}
+          >
+            <span
+              className="text-[9px] font-mono uppercase tracking-[0.12em]"
+              style={{
+                color: "#475569",
+                writingMode: "vertical-rl",
+                transform: "rotate(180deg)",
+              }}
+            >
+              ADX / Trend →
+            </span>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(20, 1fr)",
+                gap: "1px",
+                maxWidth: "580px",
+              }}
+            >
+              {manifold.data.map((cell) => {
+                const isH = hovered?.xi === cell.xi && hovered?.yi === cell.yi;
+                return (
+                  <div
+                    key={`${cell.xi}-${cell.yi}`}
+                    onMouseEnter={() => setHovered(cell)}
+                    onMouseLeave={() => setHovered(null)}
+                    title={`Vol:${cell.volatility} ADX:${cell.adx} Liq:${cell.liquidity.toFixed(1)} ${cell.regime}`}
+                    style={{
+                      aspectRatio: "1",
+                      background: liquidityToColor(cell.liquidity),
+                      opacity: isH ? 1 : 0.82,
+                      transform: isH ? "scale(1.4)" : "scale(1)",
+                      transition: "transform 0.1s, opacity 0.1s",
+                      borderRadius: "1px",
+                      cursor: "crosshair",
+                      position: "relative",
+                      zIndex: isH ? 10 : 1,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div className="text-center mt-1">
+              <span
+                className="text-[9px] font-mono uppercase tracking-[0.12em]"
+                style={{ color: "#475569" }}
+              >
+                Volatility Index →
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p
+            className="text-[10px] font-mono uppercase tracking-[0.12em] mb-2"
+            style={{ color: "#475569" }}
+          >
+            Color Scale
+          </p>
+          <div
+            className="rounded-lg overflow-hidden mb-1"
+            style={{
+              height: "12px",
+              background:
+                "linear-gradient(to right, #FF0000, #FFFF00, #00FF00)",
+            }}
+          />
+          <div
+            className="flex justify-between text-[9px] font-mono mb-4"
+            style={{ color: "#475569" }}
+          >
+            <span>0 CHAOS</span>
+            <span>50</span>
+            <span>100 EQUIL.</span>
+          </div>
+
+          {[
+            {
+              color: "#10b981",
+              label: "EQUILIBRIUM",
+              range: "≥ 65",
+              desc: "High ADX + low vol. Institutional flow dominant.",
+            },
+            {
+              color: "#f59e0b",
+              label: "TRANSITIONAL",
+              range: "35–64",
+              desc: "Mixed regime. Selective entries only.",
+            },
+            {
+              color: "#ef4444",
+              label: "CHAOS",
+              range: "< 35",
+              desc: "High vol + no trend. Liquidity vacuum.",
+            },
+          ].map((r) => (
+            <div
+              key={r.label}
+              className="flex items-start gap-2 mb-2 p-2.5 rounded-lg"
+              style={{ background: "rgba(0,0,0,0.2)" }}
+            >
+              <div
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "2px",
+                  background: r.color,
+                  flexShrink: 0,
+                  marginTop: "3px",
+                }}
+              />
+              <div>
+                <p
+                  className="text-[10px] font-black"
+                  style={{ color: r.color }}
+                >
+                  {r.label} (score {r.range})
+                </p>
+                <p
+                  className="text-[9px] leading-snug"
+                  style={{ color: "#475569" }}
+                >
+                  {r.desc}
+                </p>
+              </div>
+            </div>
+          ))}
+
+          {hovered && (
+            <div
+              className="mt-3 p-3 rounded-lg"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <p
+                className="text-[9px] font-mono uppercase tracking-[0.1em] mb-1.5"
+                style={{ color: "#475569" }}
+              >
+                Cell Readout
+              </p>
+              <div className="space-y-0.5 text-[11px] font-mono">
+                <div>
+                  <span style={{ color: "#475569" }}>Volatility: </span>
+                  <span className="text-white">{hovered.volatility}</span>
+                </div>
+                <div>
+                  <span style={{ color: "#475569" }}>ADX: </span>
+                  <span className="text-white">{hovered.adx}</span>
+                </div>
+                <div>
+                  <span style={{ color: "#475569" }}>Liquidity: </span>
+                  <span style={{ color: liquidityToColor(hovered.liquidity) }}>
+                    {hovered.liquidity.toFixed(1)}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "#475569" }}>Regime: </span>
+                  <span style={{ color: hovered.regimeColor }}>
+                    {hovered.regime}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
+export default function QuantAnalysisSection({ timeSeriesData = [] }) {
+  return (
+    <div className="mt-8 space-y-6">
+      <div
+        className="flex items-center gap-3 pb-4"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <div
+          className="p-2.5 rounded-xl"
+          style={{
+            background: "rgba(91,140,255,0.12)",
+            border: "1px solid rgba(91,140,255,0.25)",
+          }}
+        >
+          <Brain size={20} style={{ color: "#5B8CFF" }} />
+        </div>
+        <div>
+          <h2 className="text-[22px] font-black text-white tracking-tight">
+            Quantitative Analysis Engine
+          </h2>
+          <p className="text-[12px] mt-0.5" style={{ color: "#475569" }}>
+            Hurst Exponent · Fractional Differentiation (d=0.4) · Monte Carlo
+            GBM (1,000 paths) · Fat-Tail Stress Testing · Market Manifold
+          </p>
+        </div>
+      </div>
+
+      <HurstPanel timeSeriesData={timeSeriesData} />
+      <MonteCarloPanel />
+      <ChaosMonkeyPanel />
+      <MarketManifoldPanel />
+
+      <style jsx global>{`
+        @keyframes qSpin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+
