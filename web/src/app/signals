@@ -29,7 +29,7 @@ import InternalLayout from "@/components/InternalLayout";
 import AppNav from "@/components/AppNav";
 import { useOmniStore } from "@/store/useOmniStore";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Design tokens ────────────────────────────────────────────────────────────
 const D = {
   bg: "#050505",
   surface: "rgba(255,255,255,0.04)",
