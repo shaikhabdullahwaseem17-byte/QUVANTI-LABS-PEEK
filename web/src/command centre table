@@ -1,0 +1,480 @@
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  flexRender,
+} from "@tanstack/react-table";
+import {
+  Play,
+  Pause,
+  Terminal,
+  Trash2,
+  TrendingUp,
+  TrendingDown,
+  Eye,
+  Plus,
+} from "lucide-react";
+import useTerminalStore from "@/utils/terminalStore";
+import { useOmniStore } from "@/store/useOmniStore";
+
+/**
+ * CommandCenterTable — subscribes to OmniStore.agents
+ *
+ * Any syncAgents() call (from create page, delete handlers, status toggles)
+ * instantly reflects here — no page reload needed.
+ * Also refreshes when the browser tab regains visibility.
+ */
+export default function CommandCenterTable() {
+  // ── Subscribe to OmniStore — zero prop-drilling, instant cross-page sync ──
+  const agents = useOmniStore((s) => s.agents);
+  const agentFetchStatus = useOmniStore((s) => s.agentFetchStatus);
+  const syncAgents = useOmniStore((s) => s.syncAgents);
+  const [sorting, setSorting] = useState([]);
+  const openTerminal = useTerminalStore((state) => state.openTerminal);
+
+  // ── Initial fetch + tab-focus refresh + 15s background poll ──────────────
+  useEffect(() => {
+    syncAgents();
+
+    // When user navigates back from /agents/create, re-fetch immediately
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncAgents();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    const interval = setInterval(syncAgents, 15000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(interval);
+    };
+  }, []);
+
+  async function handlePauseResume(agent) {
+    const newStatus = agent.status === "active" ? "paused" : "active";
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error("Failed to update agent status");
+      await syncAgents(); // store refresh → all subscribed UI updates instantly
+    } catch (error) {
+      console.error("Error updating agent status:", error);
+      alert("Failed to update agent status");
+    }
+  }
+
+  async function handleLiquidate(agent) {
+    if (
+      !confirm(
+        `⚠️ LIQUIDATE & DELETE "${agent.name}"?\n\nThis will:\n- Close all positions\n- Stop execution\n- Delete the agent permanently\n\nThis action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/agents/liquidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent.id }),
+      });
+      if (!res.ok) throw new Error("Failed to liquidate agent");
+      await syncAgents();
+    } catch (error) {
+      console.error("Error liquidating agent:", error);
+      alert("Failed to liquidate agent");
+    }
+  }
+
+  const columns = useMemo(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Agent Name",
+        cell: ({ row }) => (
+          <a
+            href={`/agents/${row.original.id}`}
+            style={{
+              fontWeight: 700,
+              color: "#EEF2FF",
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#5B8CFF")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "#EEF2FF")}
+          >
+            <Eye size={13} style={{ opacity: 0.4, flexShrink: 0 }} />
+            {row.original.name}
+          </a>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const status = row.original.status;
+          const color =
+            status === "active"
+              ? "#34D399"
+              : status === "paused"
+                ? "#FBBF24"
+                : "#F87171";
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: color,
+                  boxShadow: `0 0 6px ${color}`,
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "#8B9EB5",
+                  textTransform: "capitalize",
+                }}
+              >
+                {status}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "unrealized_pnl",
+        header: "Return",
+        cell: ({ row }) => {
+          const pnl = row.original.latest_backtest?.total_return || 0;
+          const isPositive = pnl >= 0;
+          return (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                color: isPositive ? "#34D399" : "#F87171",
+              }}
+            >
+              {isPositive ? (
+                <TrendingUp size={13} />
+              ) : (
+                <TrendingDown size={13} />
+              )}
+              <span style={{ fontFamily: "monospace", fontSize: 12 }}>
+                {isPositive ? "+" : ""}
+                {pnl.toFixed(2)}%
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "win_rate",
+        header: "Win Rate",
+        cell: ({ row }) => {
+          const winRate = row.original.latest_backtest?.win_rate || 0;
+          return (
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: 12,
+                color: "#8B9EB5",
+              }}
+            >
+              {(winRate * 100).toFixed(1)}%
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "sharpe",
+        header: "Sharpe",
+        cell: ({ row }) => {
+          const sharpe = row.original.latest_backtest?.sharpe_ratio || 0;
+          return (
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: 12,
+                color: "#8B9EB5",
+              }}
+            >
+              {sharpe.toFixed(2)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const agent = row.original;
+          return (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              {/* ── VIEW — white/black euro chic ── */}
+              <a
+                href={`/agents/${agent.id}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 12px",
+                  borderRadius: 8,
+                  background: "#ffffff",
+                  color: "#000000",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Eye size={11} />
+                View
+              </a>
+              {/* ── TERMINAL ── */}
+              <button
+                onClick={() => openTerminal(agent)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 12px",
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#C8D6EF",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                title="Open Diagnostics Terminal"
+              >
+                <Terminal size={11} />
+                Terminal
+              </button>
+              {/* ── PAUSE / RESUME ── */}
+              <button
+                onClick={() => handlePauseResume(agent)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 12px",
+                  borderRadius: 8,
+                  background:
+                    agent.status === "active"
+                      ? "rgba(251,191,36,0.1)"
+                      : "rgba(52,211,153,0.1)",
+                  border: `1px solid ${
+                    agent.status === "active"
+                      ? "rgba(251,191,36,0.25)"
+                      : "rgba(52,211,153,0.25)"
+                  }`,
+                  color: agent.status === "active" ? "#FBBF24" : "#34D399",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {agent.status === "active" ? (
+                  <Pause size={11} />
+                ) : (
+                  <Play size={11} />
+                )}
+                {agent.status === "active" ? "Pause" : "Resume"}
+              </button>
+              {/* ── DELETE ── */}
+              <button
+                onClick={() => handleLiquidate(agent)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 12px",
+                  borderRadius: 8,
+                  background: "rgba(248,113,113,0.08)",
+                  border: "1px solid rgba(248,113,113,0.2)",
+                  color: "#F87171",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Trash2 size={11} />
+                Delete
+              </button>
+            </div>
+          );
+        },
+      },
+    ],
+    [openTerminal],
+  );
+
+  const table = useReactTable({
+    data: agents,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  // Only show skeleton on very first load before any data arrives
+  const isInitialLoad = agentFetchStatus === "loading" && agents.length === 0;
+
+  if (isInitialLoad) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "48px 0",
+          color: "#4A5568",
+          fontSize: 13,
+        }}
+      >
+        Loading agents…
+      </div>
+    );
+  }
+
+  if (agents.length === 0) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "48px 24px",
+          textAlign: "center",
+        }}
+      >
+        <Terminal size={36} style={{ color: "#1F2937", marginBottom: 16 }} />
+        <h3
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            color: "#EEF2FF",
+            marginBottom: 8,
+          }}
+        >
+          No Agents Deployed
+        </h3>
+        <p style={{ fontSize: 13, color: "#4A5568", marginBottom: 20 }}>
+          Create your first trading agent to get started
+        </p>
+        <a
+          href="/agents/create"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "10px 24px",
+            borderRadius: 10,
+            background: "#ffffff",
+            color: "#000000",
+            fontSize: 13,
+            fontWeight: 700,
+            textDecoration: "none",
+            boxShadow: "0 4px 20px rgba(255,255,255,0.12)",
+          }}
+        >
+          <Plus size={14} />
+          Create Agent
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr
+              key={headerGroup.id}
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+            >
+              {headerGroup.headers.map((header) => (
+                <th
+                  key={header.id}
+                  style={{
+                    textAlign: "left",
+                    padding: "8px 12px",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "#4A5568",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.09em",
+                    background: "transparent",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
+                </th>
+              ))}
+            </tr>
+          ))}
+        </thead>
+        <tbody>
+          {table.getRowModel().rows.map((row) => (
+            <tr
+              key={row.id}
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "rgba(255,255,255,0.018)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "transparent")
+              }
+            >
+              {row.getVisibleCells().map((cell) => (
+                <td
+                  key={cell.id}
+                  style={{ padding: "12px 12px", verticalAlign: "middle" }}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+
