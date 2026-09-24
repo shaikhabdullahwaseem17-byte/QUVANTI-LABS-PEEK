@@ -1,0 +1,1265 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import {
+  X,
+  Activity,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  Target,
+  Download,
+  AlertTriangle,
+  RefreshCw,
+  Trash2,
+  Shield,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  ReferenceDot,
+  Legend,
+} from "recharts";
+import useTerminalStore from "@/utils/terminalStore";
+
+// ── SSE status config ─────────────────────────────────────────────────────
+const SSE_COLORS = {
+  connected: "#10b981",
+  connecting: "#f59e0b",
+  error: "#ef4444",
+  disconnected: "#4b5563",
+};
+const SSE_LABELS = {
+  connected: "LIVE",
+  connecting: "CONNECTING",
+  error: "RECONNECTING",
+  disconnected: "OFFLINE",
+};
+
+export default function DiagnosticsTerminal() {
+  const {
+    terminalOpen,
+    selectedAgentId,
+    selectedAgentData,
+    activeTab,
+    logLines,
+    logError,
+    sseStatus,
+    reconnectCount,
+    downloadLoading,
+    setActiveTab,
+    closeTerminal,
+    clearLogs,
+    downloadAuditReport,
+    startSSE,
+  } = useTerminalStore();
+
+  const [kpiData, setKpiData] = useState(null);
+  const [chartData, setChartData] = useState([]);
+  const [tradeMarkers, setTradeMarkers] = useState([]);
+  const logEndRef = useRef(null);
+
+  // Auto-scroll logs to bottom on new entries
+  useEffect(() => {
+    if (logLines.length > 0) {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logLines]);
+
+  // Build KPIs from backtest data when switching to kpi tab
+  useEffect(() => {
+    if (terminalOpen && selectedAgentData && activeTab === "kpi") {
+      buildKPIs(selectedAgentData);
+    }
+  }, [terminalOpen, selectedAgentData, activeTab]);
+
+  // Build chart data from backtest when switching to charts tab
+  useEffect(() => {
+    if (terminalOpen && selectedAgentData && activeTab === "charts") {
+      buildChartData(selectedAgentData);
+    }
+  }, [terminalOpen, selectedAgentData, activeTab]);
+
+  function buildKPIs(agentData) {
+    const bt = agentData?.latest_backtest;
+    if (!bt) {
+      setKpiData(null);
+      return;
+    }
+
+    const sharpe = parseFloat(bt.sharpe_ratio || 0);
+    const maxDD = parseFloat(bt.max_drawdown || 0);
+    const winRate = parseFloat(bt.win_rate || 0);
+    const totalTrades = parseInt(bt.total_trades || 0);
+    const rd = bt.results_data || {};
+    const sortino =
+      rd.sortinoRatio ?? (sharpe > 0 ? sharpe * (1 + (1 - winRate)) : 0);
+
+    // Win/Loss ratio
+    const winLoss = 1 - winRate > 0 ? winRate / (1 - winRate) : winRate * 10;
+
+    // Profit factor: gross profit / gross loss from trades
+    const trades = rd.trades || [];
+    const grossProfit = trades
+      .filter((t) => (t.pnl ?? 0) > 0)
+      .reduce((s, t) => s + (t.pnl ?? 0), 0);
+    const grossLoss = Math.abs(
+      trades
+        .filter((t) => (t.pnl ?? 0) < 0)
+        .reduce((s, t) => s + (t.pnl ?? 0), 0),
+    );
+    const profitFactor =
+      grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99 : 0;
+
+    // Max drawdown duration from results_data
+    const ddDuration = rd.maxDrawdownDuration ?? rd.maxDDDuration ?? null;
+
+    // Avg latency from results_data (stored by backtest engine) — never random
+    const avgLatency = rd.avgExecutionLatencyMs ?? rd.avgLatency ?? null;
+
+    setKpiData({
+      sharpe,
+      sortino,
+      maxDD,
+      ddDuration,
+      winLoss,
+      profitFactor,
+      avgLatency,
+      totalTrades,
+      winRate,
+    });
+  }
+
+  function buildChartData(agentData) {
+    const bt = agentData?.latest_backtest;
+    if (!bt?.results_data) {
+      setChartData([]);
+      setTradeMarkers([]);
+      return;
+    }
+
+    const trades = bt.results_data.trades || [];
+    const equityCurve = bt.results_data.equityCurve || [];
+    const initialCapital = parseFloat(bt.initial_capital || 10000);
+
+    let curve = [];
+    const markers = [];
+
+    if (equityCurve.length > 0) {
+      // Use stored equity curve from backtest
+      curve = equityCurve.map((pt, i) => ({
+        idx: i,
+        date: pt.date ?? `Day ${i + 1}`,
+        equity: parseFloat(pt.equity ?? initialCapital),
+        peak: parseFloat(pt.peak ?? pt.equity ?? initialCapital),
+      }));
+    } else if (trades.length > 0) {
+      // Reconstruct equity curve from trades
+      let equity = initialCapital;
+      let peak = initialCapital;
+      curve = trades.map((trade, i) => {
+        const pnl = parseFloat(trade.pnl ?? trade.profit ?? 0);
+        equity += pnl;
+        if (equity > peak) peak = equity;
+        return {
+          idx: i,
+          date:
+            trade.exitTime?.substring(0, 10) ??
+            trade.timestamp?.substring(0, 10) ??
+            `T${i + 1}`,
+          equity: parseFloat(equity.toFixed(2)),
+          peak: parseFloat(peak.toFixed(2)),
+        };
+      });
+    } else {
+      setChartData([]);
+      setTradeMarkers([]);
+      return;
+    }
+
+    // Compute drawdown line from peak
+    curve = curve.map((pt) => ({
+      ...pt,
+      drawdownFloor: parseFloat(
+        (pt.equity * (1 - parseFloat(bt.max_drawdown || 0) / 100)).toFixed(2),
+      ),
+    }));
+
+    // Entry/Exit markers: map each trade to a curve index
+    trades.forEach((trade, i) => {
+      const action = (trade.type ?? trade.action ?? "").toUpperCase();
+      const price = parseFloat(
+        trade.entryPrice ?? trade.exitPrice ?? trade.price ?? 0,
+      );
+      const curveIdx = Math.min(i, curve.length - 1);
+      if (curveIdx < 0) return;
+      const equityAtPoint = curve[curveIdx]?.equity ?? initialCapital;
+
+      if (action === "BUY" || action === "LONG" || action === "ENTRY") {
+        markers.push({
+          idx: curveIdx,
+          date: curve[curveIdx].date,
+          equity: equityAtPoint,
+          type: "buy",
+          price,
+        });
+      } else if (action === "SELL" || action === "SHORT" || action === "EXIT") {
+        markers.push({
+          idx: curveIdx,
+          date: curve[curveIdx].date,
+          equity: equityAtPoint,
+          type: "sell",
+          price,
+        });
+      }
+    });
+
+    setChartData(curve);
+    setTradeMarkers(markers);
+  }
+
+  if (!terminalOpen) return null;
+
+  const sseColor =
+    sseStatus === "connected"
+      ? "text-green-400"
+      : sseStatus === "connecting"
+        ? "text-yellow-400"
+        : sseStatus === "error"
+          ? "text-red-400"
+          : "text-gray-400";
+
+  const sseLabel =
+    sseStatus === "connected"
+      ? "LIVE"
+      : sseStatus === "connecting"
+        ? "CONNECTING..."
+        : sseStatus === "error"
+          ? `ERROR (retry ${reconnectCount}/${5})`
+          : "OFFLINE";
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.7)",
+          zIndex: 40,
+          backdropFilter: "blur(4px)",
+        }}
+        onClick={closeTerminal}
+      />
+
+      {/* ── SOVEREIGN BLACK PANEL ──────────────────────────────── */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          height: "100%",
+          width: "100%",
+          maxWidth: "840px",
+          background: "#050505",
+          borderLeft: "1px solid rgba(255,255,255,0.07)",
+          zIndex: 50,
+          display: "flex",
+          flexDirection: "column",
+          transform: terminalOpen ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.32s cubic-bezier(0.4,0,0.2,1)",
+          boxShadow: "-24px 0 80px rgba(0,0,0,0.85)",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 24px",
+            background: "#0a0a0a",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <Activity size={18} style={{ color: "#5B8CFF" }} />
+            <div>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <span
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: "#fff",
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  {selectedAgentData?.name || "Agent Diagnostics"}
+                </span>
+                {activeTab === "log" && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "2px 8px",
+                      borderRadius: "4px",
+                      background: `${sseColor}18`,
+                      border: `1px solid ${sseColor}30`,
+                      fontSize: "9px",
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      color: sseColor,
+                      fontFamily: "monospace",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "5px",
+                        height: "5px",
+                        borderRadius: "50%",
+                        background: sseColor,
+                        boxShadow:
+                          sseStatus === "connected"
+                            ? `0 0 6px ${sseColor}`
+                            : "none",
+                      }}
+                    />
+                    {sseLabel}
+                  </span>
+                )}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginTop: "3px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background:
+                      selectedAgentData?.status === "active"
+                        ? "#10b981"
+                        : selectedAgentData?.status === "paused"
+                          ? "#f59e0b"
+                          : "#ef4444",
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "rgba(255,255,255,0.35)",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {selectedAgentData?.status || "unknown"} · Retry{" "}
+                  {reconnectCount}/{5}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              onClick={downloadAuditReport}
+              disabled={downloadLoading}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "7px 14px",
+                borderRadius: "8px",
+                background: "rgba(91,140,255,0.1)",
+                border: "1px solid rgba(91,140,255,0.25)",
+                color: "#5B8CFF",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: downloadLoading ? "not-allowed" : "pointer",
+                opacity: downloadLoading ? 0.6 : 1,
+                letterSpacing: "0.02em",
+              }}
+            >
+              {downloadLoading ? (
+                <RefreshCw
+                  size={11}
+                  style={{ animation: "termSpin 1s linear infinite" }}
+                />
+              ) : (
+                <Download size={11} />
+              )}
+              Audit Report
+            </button>
+            <button
+              onClick={closeTerminal}
+              style={{
+                padding: "8px",
+                borderRadius: "8px",
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            background: "#080808",
+            flexShrink: 0,
+          }}
+        >
+          {[
+            { key: "log", label: "Live Execution Log" },
+            { key: "kpi", label: "KPI Dashboard" },
+            { key: "charts", label: "Performance Charts" },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              style={{
+                padding: "12px 20px",
+                fontSize: "12px",
+                fontWeight: activeTab === key ? 600 : 400,
+                color: activeTab === key ? "#fff" : "rgba(255,255,255,0.35)",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                borderBottom:
+                  activeTab === key
+                    ? "2px solid #5B8CFF"
+                    : "2px solid transparent",
+                transition: "all 0.2s",
+                letterSpacing: "0.02em",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div
+          style={{
+            flex: 1,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {activeTab === "log" && (
+            <LiveLogPane
+              logs={logLines}
+              logError={logError}
+              sseStatus={sseStatus}
+              logEndRef={logEndRef}
+              onClear={clearLogs}
+              onReconnect={() => startSSE(selectedAgentId)}
+            />
+          )}
+          {activeTab === "kpi" && <KPIPane data={kpiData} />}
+          {activeTab === "charts" && (
+            <ChartsPane
+              data={chartData}
+              markers={tradeMarkers}
+              backtest={selectedAgentData?.latest_backtest}
+            />
+          )}
+        </div>
+
+        {/* Compliance Footer */}
+        <div
+          style={{
+            padding: "10px 20px",
+            background: "#050505",
+            borderTop: "1px solid rgba(239,68,68,0.15)",
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{ display: "flex", alignItems: "flex-start", gap: "7px" }}
+          >
+            <Shield
+              size={10}
+              style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }}
+            />
+            <p
+              style={{
+                margin: 0,
+                fontSize: "9px",
+                color: "rgba(255,255,255,0.28)",
+                lineHeight: "1.6",
+                letterSpacing: "0.015em",
+              }}
+            >
+              <strong style={{ color: "#ef4444" }}>RISK DISCLOSURE:</strong>{" "}
+              Quvanti Labs is a research-first terminal. All backtested results
+              are simulated and hypothetical — they do not represent actual
+              trading. We provide AES-256 encryption for credentials but assume{" "}
+              <strong style={{ color: "rgba(255,255,255,0.45)" }}>
+                no liability
+              </strong>{" "}
+              for exchange failures or user-side breaches.{" "}
+              <strong style={{ color: "#ef4444" }}>
+                Trading involves a 100% risk of capital loss.
+              </strong>{" "}
+              Not financial advice.
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Live Log Pane (SSE-driven) ───────────────────────────────────────────────
+function LiveLogPane({
+  logs,
+  logError,
+  sseStatus,
+  logEndRef,
+  onClear,
+  onReconnect,
+}) {
+  const levelColors = {
+    EXEC: "#10b981",
+    INFO: "#8b949e",
+    WARN: "#f59e0b",
+    ERROR: "#ef4444",
+    SYSTEM: "#5B8CFF",
+  };
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "#0d1117",
+      }}
+    >
+      {/* Log toolbar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 16px",
+          background: "#0a0f14",
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              background: "#ef4444",
+            }}
+          />
+          <div
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              background: "#f59e0b",
+            }}
+          />
+          <div
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              background: "#10b981",
+            }}
+          />
+          <span
+            style={{
+              fontSize: "10px",
+              color: "rgba(255,255,255,0.2)",
+              fontFamily: "monospace",
+              marginLeft: "8px",
+            }}
+          >
+            quvanti-execution-engine — {logs.length} events
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          {sseStatus === "error" && (
+            <button
+              onClick={onReconnect}
+              style={{
+                fontSize: "9px",
+                color: "#f59e0b",
+                background: "transparent",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: "4px",
+                padding: "2px 8px",
+                cursor: "pointer",
+                fontFamily: "monospace",
+              }}
+            >
+              RECONNECT
+            </button>
+          )}
+          <button
+            onClick={onClear}
+            style={{
+              fontSize: "9px",
+              color: "rgba(255,255,255,0.25)",
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "4px",
+              padding: "2px 8px",
+              cursor: "pointer",
+              fontFamily: "monospace",
+            }}
+          >
+            CLEAR
+          </button>
+        </div>
+      </div>
+
+      {/* Log body */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "12px 16px",
+          fontFamily: "monospace",
+        }}
+      >
+        {logs.length === 0 && sseStatus === "connecting" && (
+          <div style={{ color: "#f59e0b", fontSize: "12px" }}>
+            [CONNECTING] Establishing SSE stream to execution engine...
+          </div>
+        )}
+        {logs.length === 0 && sseStatus === "connected" && (
+          <div style={{ color: "#8b949e", fontSize: "12px" }}>
+            [CONNECTED] Waiting for first tick...
+          </div>
+        )}
+        {logError && (
+          <div
+            style={{
+              padding: "7px 16px",
+              background: "rgba(239,68,68,0.08)",
+              borderBottom: "1px solid rgba(239,68,68,0.15)",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              flexShrink: 0,
+            }}
+          >
+            <AlertTriangle size={11} style={{ color: "#ef4444" }} />
+            <span
+              style={{
+                fontSize: "11px",
+                color: "#ef4444",
+                fontFamily: "monospace",
+              }}
+            >
+              {logError}
+            </span>
+          </div>
+        )}
+        {logs.map((log, idx) => {
+          const level = log.level ?? "INFO";
+          return (
+            <div
+              key={idx}
+              style={{
+                fontSize: "11px",
+                lineHeight: "1.7",
+                color: levelColors[log.level] || "#8b949e",
+              }}
+            >
+              {log.message}
+            </div>
+          );
+        })}
+        <div ref={logEndRef} />
+      </div>
+    </div>
+  );
+}
+
+// ─── KPI Pane ─────────────────────────────────────────────────────────────────
+function KPIPane({ data }) {
+  if (!data) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "rgba(255,255,255,0.3)",
+          fontSize: "13px",
+        }}
+      >
+        No backtest data. Run a backtest to populate KPIs.
+      </div>
+    );
+  }
+
+  const kpis = [
+    {
+      label: "Sharpe Ratio",
+      value: data.sharpe.toFixed(3),
+      icon: TrendingUp,
+      description: "Risk-adjusted return (>1 = good)",
+      color:
+        data.sharpe > 1
+          ? "text-green-600"
+          : data.sharpe > 0
+            ? "text-yellow-600"
+            : "text-red-600",
+      formula: "E[R - Rf] / σ",
+    },
+    {
+      label: "Sortino Ratio",
+      value: data.sortino.toFixed(3),
+      icon: Target,
+      description: "Downside risk-adjusted return",
+      color: data.sortino > 1 ? "text-green-600" : "text-yellow-600",
+      formula: "E[R - Rf] / σ_downside",
+    },
+    {
+      label: "Maximum Drawdown",
+      value: `${Math.abs(data.maxDD).toFixed(2)}%`,
+      icon: TrendingDown,
+      description: data.ddDuration
+        ? `Duration: ${data.ddDuration}`
+        : "Peak-to-trough loss",
+      color: "text-red-600",
+      formula: "(Trough - Peak) / Peak",
+    },
+    {
+      label: "Win/Loss Ratio",
+      value: data.winLoss.toFixed(3),
+      icon: Activity,
+      description: `Win rate: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.totalTrades}`,
+      color: data.winLoss > 1 ? "text-green-600" : "text-red-600",
+      formula: "Wins / Losses",
+    },
+    {
+      label: "Profit Factor",
+      value: data.profitFactor >= 99 ? "∞" : data.profitFactor.toFixed(3),
+      icon: TrendingUp,
+      description: ">1.5 = excellent, >2 = institutional grade",
+      color:
+        data.profitFactor > 1.5
+          ? "text-green-600"
+          : data.profitFactor > 1
+            ? "text-yellow-600"
+            : "text-red-600",
+      formula: "Gross Profit / Gross Loss",
+    },
+    {
+      label: "Avg Execution Latency",
+      value:
+        data.avgLatency !== null
+          ? `${parseFloat(data.avgLatency).toFixed(1)}ms`
+          : "N/A (simulated)",
+      icon: Zap,
+      description: "<50ms = green | Simulated in paper mode",
+      color:
+        data.avgLatency !== null && data.avgLatency < 50
+          ? "text-green-600"
+          : "text-yellow-600",
+      formula: "Mean(OrderSent → Fill)",
+    },
+  ];
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        overflowY: "auto",
+        padding: "20px",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "12px",
+        alignContent: "start",
+      }}
+    >
+      {kpis.map((kpi, i) => {
+        const Icon = kpi.icon;
+        const accent = i === 2 ? "#ef4444" : kpi.good ? "#10b981" : "#f59e0b";
+        return (
+          <div
+            key={i}
+            style={{
+              padding: "16px",
+              borderRadius: "10px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: "8px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "10px",
+                  color: "rgba(255,255,255,0.3)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {kpi.label}
+              </span>
+              <Icon size={14} style={{ color: accent }} />
+            </div>
+            <div
+              style={{
+                fontSize: "24px",
+                fontWeight: 800,
+                color: accent,
+                fontFamily: "monospace",
+                marginBottom: "4px",
+              }}
+            >
+              {kpi.value}
+            </div>
+            <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.2)" }}>
+              {kpi.description}
+            </div>
+            <div
+              style={{
+                fontSize: "9px",
+                color: accent,
+                opacity: 0.6,
+                marginTop: "2px",
+              }}
+            >
+              {kpi.formula}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Charts Pane ─────────────────────────────────────────────────────────────
+// Custom dot renderer for Entry/Exit markers on equity curve
+function TradeMarkerDot(props) {
+  const { cx, cy, payload } = props;
+  if (!payload) return null;
+  const buy = tradeMarkersRef?.current?.find(
+    (m) => m.date === payload.date && m.type === "buy",
+  );
+  const sell = tradeMarkersRef?.current?.find(
+    (m) => m.date === payload.date && m.type === "sell",
+  );
+  if (!buy && !sell) return null;
+  const isBuy = !!buy;
+  return (
+    <g>
+      <polygon
+        points={
+          isBuy
+            ? `${cx},${cy - 10} ${cx - 6},${cy} ${cx + 6},${cy}`
+            : `${cx},${cy + 10} ${cx - 6},${cy} ${cx + 6},${cy}`
+        }
+        fill={isBuy ? "#10b981" : "#ef4444"}
+        stroke="white"
+        strokeWidth={1}
+      />
+    </g>
+  );
+}
+
+// We need a ref to pass markers into the custom dot (recharts limitation with closures)
+const tradeMarkersRef = { current: [] };
+
+function ChartsPane({ data, markers, backtest }) {
+  tradeMarkersRef.current = markers || [];
+
+  if (!data || data.length === 0) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: "8px",
+        }}
+      >
+        <TrendingUp size={28} style={{ color: "rgba(255,255,255,0.1)" }} />
+        <p style={{ color: "rgba(255,255,255,0.25)", fontSize: "13px" }}>
+          Run a backtest to generate the equity curve.
+        </p>
+      </div>
+    );
+  }
+
+  const initialCapital = parseFloat(backtest?.initial_capital || 10000);
+  const finalCapital = parseFloat(
+    backtest?.final_capital || data[data.length - 1]?.equity || 10000,
+  );
+  const totalReturn = (
+    ((finalCapital - initialCapital) / initialCapital) *
+    100
+  ).toFixed(2);
+  const isPositive = finalCapital >= initialCapital;
+
+  // Build reference dots for entry/exit markers (recharts ReferenceDot approach)
+  const buyMarkers = markers.filter((m) => m.type === "buy");
+  const sellMarkers = markers.filter((m) => m.type === "sell");
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+      {/* Summary row */}
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          marginBottom: "16px",
+          flexWrap: "wrap",
+        }}
+      >
+        {[
+          {
+            label: "Return",
+            value: `${isPositive ? "+" : ""}${totalReturn}%`,
+            color: isPositive ? "#10b981" : "#ef4444",
+          },
+          {
+            label: "Final Capital",
+            value: `$${finalCapital.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+            color: "#5B8CFF",
+          },
+          { label: "Entries ▲", value: buyMarkers.length, color: "#10b981" },
+          { label: "Exits ▼", value: sellMarkers.length, color: "#ef4444" },
+        ].map((s, i) => (
+          <div
+            key={i}
+            style={{
+              padding: "10px 16px",
+              borderRadius: "8px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "9px",
+                color: "rgba(255,255,255,0.3)",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                marginBottom: "4px",
+              }}
+            >
+              {s.label}
+            </div>
+            <div
+              style={{
+                fontSize: "18px",
+                fontWeight: 800,
+                color: s.color,
+                fontFamily: "monospace",
+              }}
+            >
+              {s.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <ResponsiveContainer width="100%" height={340}>
+        <AreaChart
+          data={data}
+          margin={{ top: 10, right: 10, bottom: 0, left: 10 }}
+        >
+          <defs>
+            <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#ef4444" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+          <XAxis
+            dataKey="date"
+            stroke="#9CA3AF"
+            tick={{ fontSize: 10 }}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            stroke="#9CA3AF"
+            tick={{ fontSize: 10 }}
+            tickFormatter={(v) => `$${v.toLocaleString()}`}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "#fff",
+              border: "1px solid #E5E7EB",
+              borderRadius: "8px",
+              fontSize: 12,
+            }}
+            formatter={(value, name) => [
+              `$${parseFloat(value).toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+              name === "equity" ? "Portfolio" : "DD Floor",
+            ]}
+          />
+          <Area
+            type="monotone"
+            dataKey="drawdownFloor"
+            stroke="#ef4444"
+            fill="url(#ddGrad)"
+            strokeWidth={1}
+            strokeDasharray="4 2"
+            dot={false}
+            name="DD Floor"
+          />
+          <Area
+            type="monotone"
+            dataKey="equity"
+            stroke="#10b981"
+            fill="url(#equityGrad)"
+            strokeWidth={2}
+            dot={false}
+            name="Portfolio"
+          />
+
+          {/* Entry Markers — Green upward triangles */}
+          {buyMarkers.map((m, i) => (
+            <ReferenceDot
+              key={`buy-${i}`}
+              x={m.date}
+              y={m.equity}
+              r={5}
+              fill="#10b981"
+              stroke="#fff"
+              strokeWidth={1.5}
+              label={{
+                value: "▲",
+                position: "top",
+                fill: "#10b981",
+                fontSize: 10,
+              }}
+            />
+          ))}
+
+          {/* Exit Markers — Red downward triangles */}
+          {sellMarkers.map((m, i) => (
+            <ReferenceDot
+              key={`sell-${i}`}
+              x={m.date}
+              y={m.equity}
+              r={5}
+              fill="#ef4444"
+              stroke="#fff"
+              strokeWidth={1.5}
+              label={{
+                value: "▼",
+                position: "bottom",
+                fill: "#ef4444",
+                fontSize: 10,
+              }}
+            />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
+
+      <div style={{ display: "flex", gap: "16px", marginTop: "8px" }}>
+        <span style={{ fontSize: "9px", color: "#10b981" }}>▲ Entry (Buy)</span>
+        <span style={{ fontSize: "9px", color: "#ef4444" }}>▼ Exit (Sell)</span>
+        <span style={{ fontSize: "9px", color: "rgba(255,255,255,0.25)" }}>
+          Initial Capital: ${initialCapital.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Strategy Flow Visualization */}
+      <StrategyFlowViz />
+    </div>
+  );
+}
+
+// ─── Strategy Logic Flow (Custom SVG — zero external dependency) ──────────────
+function StrategyFlowViz() {
+  const nodes = [
+    {
+      x: 10,
+      y: 70,
+      w: 120,
+      h: 40,
+      label: "Market Data",
+      sub: "OHLCV · CoinGecko",
+      color: "#5B8CFF",
+    },
+    {
+      x: 190,
+      y: 20,
+      w: 120,
+      h: 40,
+      label: "Indicators",
+      sub: "RSI · MACD · BB",
+      color: "#8A7CFF",
+    },
+    {
+      x: 190,
+      y: 100,
+      w: 120,
+      h: 40,
+      label: "Regime Engine",
+      sub: "Hurst · ADX",
+      color: "#f59e0b",
+    },
+    {
+      x: 380,
+      y: 70,
+      w: 120,
+      h: 40,
+      label: "Signal Score",
+      sub: "Bayesian Composite",
+      color: "#5B8CFF",
+    },
+    {
+      x: 570,
+      y: 20,
+      w: 120,
+      h: 40,
+      label: "Risk Guard",
+      sub: "Kelly · Stop Loss",
+      color: "#ef4444",
+    },
+    {
+      x: 570,
+      y: 100,
+      w: 120,
+      h: 40,
+      label: "Execution",
+      sub: "0.1% Slippage Model",
+      color: "#10b981",
+    },
+  ];
+  const edges = [
+    [130, 90, 190, 40],
+    [130, 90, 190, 120],
+    [310, 40, 380, 90],
+    [310, 120, 380, 90],
+    [500, 90, 570, 40],
+    [500, 90, 570, 120],
+  ];
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.02)",
+        borderRadius: "12px",
+        border: "1px solid rgba(255,255,255,0.05)",
+        padding: "16px",
+      }}
+    >
+      <p
+        style={{
+          margin: "0 0 12px 0",
+          fontSize: "11px",
+          color: "rgba(255,255,255,0.4)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+        }}
+      >
+        Strategy Logic Flow
+      </p>
+      <svg width="100%" viewBox="0 0 700 160" style={{ overflow: "visible" }}>
+        {edges.map(([x1, y1, x2, y2], i) => (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth="1.5"
+            strokeDasharray="5 3"
+          />
+        ))}
+        {nodes.map((n, i) => (
+          <g key={i}>
+            <rect
+              x={n.x}
+              y={n.y}
+              width={n.w}
+              height={n.h}
+              rx={8}
+              fill="rgba(255,255,255,0.04)"
+              stroke={n.color}
+              strokeWidth="1"
+              strokeOpacity="0.5"
+            />
+            <text
+              x={n.x + n.w / 2}
+              y={n.y + 15}
+              textAnchor="middle"
+              fill="#ffffff"
+              fontSize="10"
+              fontWeight="700"
+              fontFamily="monospace"
+            >
+              {n.label}
+            </text>
+            <text
+              x={n.x + n.w / 2}
+              y={n.y + 29}
+              textAnchor="middle"
+              fill={n.color}
+              fontSize="8.5"
+              fontFamily="monospace"
+              opacity="0.75"
+            >
+              {n.sub}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+<style jsx global>{`
+  @keyframes termSpin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`}</style>;
+
+
+
