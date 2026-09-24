@@ -1,0 +1,60 @@
+// Client-side device fingerprinting utility
+export function generateDeviceFingerprint() {
+  if (typeof window === "undefined") return null;
+
+  const components = [];
+
+  // Browser info
+  components.push(navigator.userAgent);
+  components.push(navigator.language);
+  components.push(navigator.platform);
+  components.push(navigator.hardwareConcurrency || "unknown");
+
+  // Screen info
+  components.push(screen.width);
+  components.push(screen.height);
+  components.push(screen.colorDepth);
+  components.push(screen.pixelDepth);
+
+  // Timezone
+  components.push(new Date().getTimezoneOffset());
+  components.push(Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+  // Available features
+  components.push(navigator.cookieEnabled);
+  components.push(navigator.doNotTrack || "unknown");
+
+  // Canvas fingerprint (simplified)
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.textBaseline = "top";
+    ctx.font = "14px Arial";
+    ctx.fillText("fingerprint", 2, 2);
+    components.push(canvas.toDataURL());
+  } catch (e) {
+    components.push("canvas-blocked");
+  }
+
+  // Combine all components
+  const fingerprint = components.join("|");
+
+  // Return hash-like string (simple version - not cryptographic)
+  let hash = 0;
+  for (let i = 0; i < fingerprint.length; i++) {
+    const char = fingerprint.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
+  }
+
+  return Math.abs(hash).toString(36);
+}
+
+export function getClientIP() {
+  // This needs to be handled server-side via headers
+  // Client-side cannot reliably get public IP
+  return null;
+}
+
+
+
