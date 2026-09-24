@@ -1,0 +1,723 @@
+"use client";
+import { useState, useEffect } from "react";
+import { Rocket, BarChart3 } from "lucide-react";
+import NeuralTradingCanvas from "@/components/NeuralTradingCanvas";
+import AppNav from "@/components/AppNav";
+import AnimatedIcon from "@/components/AnimatedIcon";
+
+// ── Strategy cycling copy ────────────────────────────────────────────────
+const STRATEGIES = [
+  "Buy BTC when RSI < 30 and 50MA crosses above 200MA. Use 2% stop loss.",
+  "Sell ETH on MACD bearish crossover. 4H timeframe. Exit at -5% target.",
+  "Golden cross momentum: 50/200 EMA with volume confirmation filter.",
+  "Mean reversion: enter at 2σ deviation from mean. Hurst exponent > 0.6.",
+  "Bollinger Band squeeze breakout with OBV momentum confirmation.",
+];
+
+// ── Live ticker data ─────────────────────────────────────────────────────
+const BASE_TICKERS = [
+  { symbol: "BTC", price: 67234.12, change: 2.31, up: true },
+  { symbol: "ETH", price: 3845.88, change: 1.82, up: true },
+  { symbol: "SOL", price: 189.4, change: -0.54, up: false },
+  { symbol: "BNB", price: 412.3, change: 3.21, up: true },
+  { symbol: "ADA", price: 0.4821, change: -1.15, up: false },
+  { symbol: "XRP", price: 0.5634, change: 0.87, up: true },
+  { symbol: "DOT", price: 7.82, change: 4.12, up: true },
+  { symbol: "DOGE", price: 0.1231, change: -2.3, up: false },
+  { symbol: "AVAX", price: 38.94, change: 5.44, up: true },
+  { symbol: "MATIC", price: 0.8812, change: -0.91, up: false },
+  { symbol: "LINK", price: 14.72, change: 2.08, up: true },
+  { symbol: "UNI", price: 9.34, change: 1.67, up: true },
+];
+
+// ── HUD corner bracket component ─────────────────────────────────────────
+function HudCorner({ label, value, sub, right = false, bottom = false }) {
+  const h = bottom ? "bottom" : "top";
+  const w = right ? "right" : "left";
+  return (
+    <div
+      style={{
+        position: "relative",
+        padding: "10px 14px",
+        minWidth: "170px",
+      }}
+    >
+      {/* Corner bracket marks */}
+      {/* outer corner */}
+      <div
+        style={{
+          position: "absolute",
+          [h]: 0,
+          [w]: 0,
+          width: "10px",
+          height: "10px",
+          borderTop: bottom ? "none" : "1px solid rgba(91,140,255,0.45)",
+          borderBottom: bottom ? "1px solid rgba(91,140,255,0.45)" : "none",
+          borderLeft: right ? "none" : "1px solid rgba(91,140,255,0.45)",
+          borderRight: right ? "1px solid rgba(91,140,255,0.45)" : "none",
+        }}
+      />
+      {/* inner content */}
+      <p
+        style={{
+          fontFamily: "monospace",
+          fontSize: "9px",
+          color: "rgba(91,140,255,0.65)",
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          margin: "0 0 3px 0",
+        }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          fontFamily: "monospace",
+          fontSize: "13px",
+          fontWeight: 700,
+          color: "#EEF2FF",
+          margin: "0 0 2px 0",
+        }}
+      >
+        {value}
+      </p>
+      {sub && (
+        <p
+          style={{
+            fontFamily: "monospace",
+            fontSize: "9px",
+            color: "rgba(255,255,255,0.28)",
+            margin: 0,
+            letterSpacing: "0.06em",
+          }}
+        >
+          {sub}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Radar pulse rings ────────────────────────────────────────────────────
+function RadarPulse() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        pointerEvents: "none",
+      }}
+    >
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          style={{
+            position: "absolute",
+            width: "1px",
+            height: "1px",
+            borderRadius: "50%",
+            border: "1px solid rgba(91,140,255,0.18)",
+            animation: `radarRing 4s ease-out ${i * 1.33}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Main hero export ─────────────────────────────────────────────────────
+export default function QuantHero() {
+  // ── Typing animation ──────────────────────────────────────────────────
+  const [stratIdx, setStratIdx] = useState(0);
+  const [typedText, setTypedText] = useState("");
+  const [isTyping, setIsTyping] = useState(true);
+  const [showCursor, setShowCursor] = useState(true);
+
+  // Live HUD metrics (fake-live numbers)
+  const [hudMetrics, setHudMetrics] = useState({
+    nodes: 78,
+    connections: 1124,
+    particles: 89,
+    signals: 42,
+    successProb: 97.8,
+  });
+
+  // Ticker prices
+  const [tickers, setTickers] = useState(BASE_TICKERS);
+
+  // ── Clock ──────────────────────────────────────────────────────────────
+  const [clock, setClock] = useState("");
+  useEffect(() => {
+    const tick = () =>
+      setClock(new Date().toUTCString().slice(17, 25) + " UTC");
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Cursor blink ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const iv = setInterval(() => setShowCursor((p) => !p), 530);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Typing effect ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const full = STRATEGIES[stratIdx];
+    if (isTyping) {
+      if (typedText.length < full.length) {
+        const t = setTimeout(
+          () => setTypedText(full.slice(0, typedText.length + 1)),
+          42,
+        );
+        return () => clearTimeout(t);
+      } else {
+        const t = setTimeout(() => setIsTyping(false), 2800);
+        return () => clearTimeout(t);
+      }
+    } else {
+      if (typedText.length > 0) {
+        const t = setTimeout(() => setTypedText((p) => p.slice(0, -1)), 22);
+        return () => clearTimeout(t);
+      } else {
+        setStratIdx((p) => (p + 1) % STRATEGIES.length);
+        setIsTyping(true);
+      }
+    }
+  }, [typedText, isTyping, stratIdx]);
+
+  // ── Live HUD counter flicker ───────────────────────────────────────────
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setHudMetrics({
+        nodes: 78 + Math.floor(Math.random() * 4),
+        connections: 1124 + Math.floor(Math.random() * 80) - 40,
+        particles: 89 + Math.floor(Math.random() * 42),
+        signals: 40 + Math.floor(Math.random() * 6),
+        successProb: +(97 + Math.random() * 2).toFixed(1),
+      });
+    }, 1800);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ── Ticker price drift ────────────────────────────────────────────────
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setTickers((prev) =>
+        prev.map((t) => {
+          const delta = t.price * (Math.random() - 0.499) * 0.0012;
+          const newPrice = t.price + delta;
+          const newChange = t.change + (Math.random() - 0.5) * 0.08;
+          return {
+            ...t,
+            price: newPrice,
+            change: newChange,
+            up: newChange > 0,
+          };
+        }),
+      );
+    }, 2800);
+    return () => clearInterval(iv);
+  }, []);
+
+  function fmtPrice(p) {
+    if (p >= 1000)
+      return `$${p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (p >= 1) return `$${p.toFixed(3)}`;
+    return `$${p.toFixed(4)}`;
+  }
+
+  // Triple-duplicate tickers for seamless CSS scroll loop
+  const tickerItems = [...tickers, ...tickers, ...tickers];
+
+  return (
+    <section
+      style={{
+        position: "relative",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "#040608",
+      }}
+    >
+      {/* ── Neural canvas background ────────────────────────────── */}
+      <div style={{ position: "absolute", inset: 0, opacity: 0.58 }}>
+        <NeuralTradingCanvas />
+      </div>
+
+      {/* ── Vignette layers ────────────────────────────────────── */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          background:
+            "radial-gradient(ellipse at 50% 50%, transparent 25%, rgba(4,6,8,0.82) 100%)",
+        }}
+      />
+      {/* Hard edge vignette bottom */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: "200px",
+          pointerEvents: "none",
+          background: "linear-gradient(to top, rgba(4,6,8,0.95), transparent)",
+        }}
+      />
+
+      {/* ── Radar pulse ────────────────────────────────────────── */}
+      <RadarPulse />
+
+      {/* ── Grid overlay (very faint) ──────────────────────────── */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          opacity: 0.035,
+          backgroundImage:
+            "linear-gradient(rgba(91,140,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(91,140,255,1) 1px, transparent 1px)",
+          backgroundSize: "80px 80px",
+        }}
+      />
+
+      {/* ── AppNav ─────────────────────────────────────────────── */}
+      <div style={{ position: "relative", zIndex: 20 }}>
+        <AppNav />
+      </div>
+
+      {/* ── HUD Top Row ────────────────────────────────────────── */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          padding: "0 28px 0 28px",
+        }}
+      >
+        <HudCorner
+          label="Neural Engine"
+          value="ACTIVE ●"
+          sub={`${hudMetrics.nodes} nodes // ${hudMetrics.connections} edges`}
+        />
+        <HudCorner
+          label="System Clock"
+          value={clock}
+          sub={`Signals: ${hudMetrics.signals} live`}
+          right
+        />
+      </div>
+
+      {/* ── CENTER CONTENT ─────────────────────────────────────── */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          position: "relative",
+          zIndex: 10,
+          padding: "20px 24px 40px",
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: "860px", width: "100%" }}>
+          {/* Badge */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "6px 16px",
+              borderRadius: "100px",
+              marginBottom: "28px",
+              background: "rgba(91,140,255,0.07)",
+              border: "1px solid rgba(91,140,255,0.2)",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: "#5B8CFF",
+                boxShadow: "0 0 8px #5B8CFF",
+                animation: "badgePulse 2s ease-in-out infinite",
+              }}
+            />
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: "10px",
+                color: "rgba(91,140,255,0.8)",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+              }}
+            >
+              Quvanti Labs · AI Quant Engine Active
+            </span>
+          </div>
+
+          {/* Headline */}
+          <h1
+            className="no-breathe"
+            style={{
+              fontSize: "clamp(2.8rem, 7.5vw, 6rem)",
+              fontWeight: 900,
+              lineHeight: 1.04,
+              letterSpacing: "-0.05em",
+              color: "#FFFFFF",
+              margin: "0 0 8px 0",
+            }}
+          >
+            Build Trading Agents.
+          </h1>
+          <h1
+            className="shimmer-heading no-breathe"
+            style={{
+              fontSize: "clamp(2.8rem, 7.5vw, 6rem)",
+              fontWeight: 900,
+              lineHeight: 1.04,
+              letterSpacing: "-0.05em",
+              margin: "0 0 32px 0",
+              display: "block",
+            }}
+          >
+            Results in 60 Seconds.
+          </h1>
+
+          {/* Typing terminal */}
+          <div
+            style={{
+              maxWidth: "640px",
+              margin: "0 auto 36px",
+              background: "rgba(0,0,0,0.55)",
+              border: "1px solid rgba(91,140,255,0.18)",
+              borderRadius: "14px",
+              overflow: "hidden",
+              backdropFilter: "blur(12px)",
+              boxShadow:
+                "0 4px 32px rgba(0,0,0,0.5), 0 0 60px rgba(91,140,255,0.04)",
+            }}
+          >
+            {/* Terminal header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "10px 16px",
+                borderBottom: "1px solid rgba(91,140,255,0.1)",
+                background: "rgba(91,140,255,0.04)",
+              }}
+            >
+              <div style={{ display: "flex", gap: "6px" }}>
+                {["#F87171", "#F59E0B", "#34D399"].map((c) => (
+                  <div
+                    key={c}
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: c,
+                      opacity: 0.8,
+                    }}
+                  />
+                ))}
+              </div>
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: "10px",
+                  color: "rgba(255,255,255,0.3)",
+                  letterSpacing: "0.1em",
+                }}
+              >
+                STRATEGY_INPUT.ai — QUVANTI PARSER
+              </span>
+            </div>
+            {/* Terminal body */}
+            <div
+              style={{
+                padding: "16px 20px",
+                minHeight: "72px",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: "13px",
+                  color: "rgba(91,140,255,0.7)",
+                  marginRight: "8px",
+                }}
+              >
+                &gt;&nbsp;
+              </span>
+              <span
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: "13px",
+                  color: "#C8D6EF",
+                  lineHeight: 1.6,
+                  textAlign: "left",
+                }}
+              >
+                {typedText}
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "2px",
+                    height: "14px",
+                    background: "#5B8CFF",
+                    marginLeft: "1px",
+                    verticalAlign: "middle",
+                    opacity: showCursor ? 1 : 0,
+                    transition: "opacity 0.1s",
+                    boxShadow: "0 0 6px #5B8CFF",
+                  }}
+                />
+              </span>
+            </div>
+          </div>
+
+          {/* CTA Buttons */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "12px",
+              justifyContent: "center",
+              marginBottom: "32px",
+            }}
+          >
+            <a
+              href="/agents/create"
+              className="btn-primary"
+              style={{
+                borderRadius: "12px",
+                fontSize: "14px",
+                fontWeight: 700,
+                padding: "14px 32px",
+                color: "#080B10",
+              }}
+            >
+              <AnimatedIcon
+                icon={Rocket}
+                size={16}
+                variant="spring"
+                style={{ color: "#080B10" }}
+              />
+              <span style={{ color: "#080B10" }}>
+                See Results in 60 Seconds
+              </span>
+            </a>
+            <a
+              href="/demo"
+              className="btn-secondary"
+              style={{
+                borderRadius: "12px",
+                fontSize: "14px",
+                padding: "14px 28px",
+              }}
+            >
+              <AnimatedIcon icon={BarChart3} size={16} variant="spring" />
+              View Live Demo
+            </a>
+          </div>
+
+          {/* Trust strip */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "10px",
+              justifyContent: "center",
+            }}
+          >
+            {[
+              "No credit card",
+              "Free forever tier",
+              "Real market data",
+              "Instant results",
+            ].map((t) => (
+              <div
+                key={t}
+                style={{
+                  padding: "5px 14px",
+                  borderRadius: "8px",
+                  fontSize: "11px",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  color: "rgba(255,255,255,0.35)",
+                  fontFamily: "monospace",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                ✓ {t}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── HUD Bottom Row ─────────────────────────────────────── */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          padding: "0 28px 8px",
+        }}
+      >
+        <HudCorner
+          label="Neural Particles"
+          value={`${hudMetrics.particles} active`}
+          sub="MONTE CARLO // 1,000 PATHS"
+          bottom
+        />
+        <HudCorner
+          label="Win Probability"
+          value={`${hudMetrics.successProb}%`}
+          sub="SUCCESS RATE // BACKTEST"
+          right
+          bottom
+        />
+      </div>
+
+      {/* ── Ticker Tape ────────────────────────────────────────── */}
+      <div
+        style={{
+          position: "relative",
+          zIndex: 15,
+          borderTop: "1px solid rgba(255,255,255,0.05)",
+          background: "rgba(4,6,8,0.85)",
+          backdropFilter: "blur(16px)",
+          overflow: "hidden",
+          height: "36px",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        {/* Fade edges */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: "80px",
+            zIndex: 2,
+            pointerEvents: "none",
+            background: "linear-gradient(to right, rgba(4,6,8,1), transparent)",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: "80px",
+            zIndex: 2,
+            pointerEvents: "none",
+            background: "linear-gradient(to left, rgba(4,6,8,1), transparent)",
+          }}
+        />
+
+        {/* Scrolling track */}
+        <div
+          className="ticker-track"
+          style={{ display: "flex", gap: "0", whiteSpace: "nowrap" }}
+        >
+          {tickerItems.map((t, i) => (
+            <div
+              key={`${t.symbol}-${i}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "0 20px",
+                borderRight: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                  color: "rgba(255,255,255,0.55)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {t.symbol}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontFamily: "monospace",
+                  color: "#EEF2FF",
+                  fontWeight: 600,
+                }}
+              >
+                {fmtPrice(t.price)}
+              </span>
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                  color: t.up ? "#34D399" : "#F87171",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "2px",
+                }}
+              >
+                {t.up ? "▲" : "▼"} {Math.abs(t.change).toFixed(2)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Animations ─────────────────────────────────────────── */}
+      <style jsx global>{`
+        @keyframes radarRing {
+          0%   { width: 60px;   height: 60px;   opacity: 0.55; border-color: rgba(91,140,255,0.4); }
+          60%  { opacity: 0.12; }
+          100% { width: 600px;  height: 600px;  opacity: 0;    border-color: rgba(91,140,255,0); }
+        }
+        @keyframes badgePulse {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px #5B8CFF; }
+          50%       { opacity: 0.5; box-shadow: 0 0 18px #5B8CFF; }
+        }
+        @keyframes tickerScroll {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(-33.333%); }
+        }
+        .ticker-track {
+          animation: tickerScroll 38s linear infinite;
+          will-change: transform;
+        }
+        .ticker-track:hover {
+          animation-play-state: paused;
+        }
+      `}</style>
+    </section>
+  );
+}
+
+
+
