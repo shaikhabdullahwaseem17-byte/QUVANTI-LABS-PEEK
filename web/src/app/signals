@@ -1,0 +1,2291 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import {
+  Zap,
+  Shield,
+  Link2,
+  Link2Off,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Activity,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  AlertTriangle,
+  CheckCircle,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Gauge,
+  ListOrdered,
+  Layers,
+  X,
+  Lock,
+} from "lucide-react";
+import InternalLayout from "@/components/InternalLayout";
+import AppNav from "@/components/AppNav";
+import { useOmniStore } from "@/store/useOmniStore";
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const D = {
+  bg: "#050505",
+  surface: "rgba(255,255,255,0.04)",
+  surface2: "rgba(255,255,255,0.07)",
+  border: "rgba(255,255,255,0.07)",
+  borderBright: "rgba(255,255,255,0.13)",
+  text: "#ffffff",
+  muted: "rgba(255,255,255,0.45)",
+  faint: "rgba(255,255,255,0.25)",
+  accent: "#5B8CFF",
+  green: "#10b981",
+  red: "#ef4444",
+  amber: "#f59e0b",
+  live: "#ef4444",
+  paper: "#5B8CFF",
+};
+
+// ── Broker definitions — IBKR removed (requires local desktop gateway, non-functional on cloud) ──
+const BROKERS = [
+  {
+    id: "alpaca",
+    name: "Alpaca",
+    logo: "🦙",
+    description: "Commission-free US equities & crypto. REST API.",
+    modes: ["paper", "live"],
+    docsUrl: "https://app.alpaca.markets/paper-dashboard/overview",
+    fields: [
+      {
+        key: "apiKey",
+        label: "API Key ID",
+        placeholder: "PKXXXXXXXXXXXXXXXX",
+        type: "text",
+      },
+      {
+        key: "secretKey",
+        label: "Secret Key",
+        placeholder: "••••••••••••••••••••••••••••••••••••••••",
+        type: "password",
+      },
+    ],
+    note: "Get your keys from Alpaca Dashboard → API Keys tab.",
+  },
+  {
+    id: "paper",
+    name: "Paper Trading (Built-in)",
+    logo: "📝",
+    description: "Simulate trading with $10,000 virtual capital. Zero risk.",
+    modes: ["paper"],
+    docsUrl: null,
+    fields: [],
+    note: "No credentials required. Uses internal simulated ledger.",
+  },
+];
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function WsLED({ status, latency }) {
+  const colors = {
+    connected: D.green,
+    reconnecting: D.amber,
+    disconnected: "rgba(255,255,255,0.2)",
+  };
+  const labels = {
+    connected: "LIVE",
+    reconnecting: "SYNC",
+    disconnected: "OFFLINE",
+  };
+  const c = colors[status] || colors.disconnected;
+  const label = labels[status] || "OFFLINE";
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "5px 12px",
+        borderRadius: "6px",
+        background: `${c}12`,
+        border: `1px solid ${c}30`,
+      }}
+    >
+      <div
+        style={{
+          width: "7px",
+          height: "7px",
+          borderRadius: "50%",
+          background: c,
+          boxShadow:
+            status === "connected" ? `0 0 0 2px ${c}30, 0 0 12px ${c}` : "none",
+          flexShrink: 0,
+        }}
+        className={status === "connected" ? "ws-pulse" : ""}
+      />
+      <span
+        style={{
+          fontSize: "9px",
+          fontWeight: 800,
+          color: c,
+          letterSpacing: "0.12em",
+          fontFamily: "monospace",
+        }}
+      >
+        {label}
+      </span>
+      {latency !== null && status === "connected" && (
+        <span
+          style={{ fontSize: "9px", color: D.faint, fontFamily: "monospace" }}
+        >
+          {latency}ms
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ConnectionBadge({ status }) {
+  const map = {
+    connected: { color: D.green, label: "CONNECTED" },
+    pending: { color: D.amber, label: "PENDING" },
+    error: { color: D.red, label: "ERROR" },
+    disconnected: { color: "rgba(255,255,255,0.2)", label: "OFFLINE" },
+  };
+  const c = map[status] || map.disconnected;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "5px",
+        padding: "3px 10px",
+        borderRadius: "4px",
+        background: `${c.color}15`,
+        border: `1px solid ${c.color}35`,
+        fontSize: "10px",
+        fontWeight: 700,
+        letterSpacing: "0.1em",
+        color: c.color,
+        fontFamily: "monospace",
+      }}
+    >
+      <div
+        style={{
+          width: "5px",
+          height: "5px",
+          borderRadius: "50%",
+          background: c.color,
+          boxShadow: status === "connected" ? `0 0 8px ${c.color}` : "none",
+        }}
+      />
+      {c.label}
+    </span>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return (
+    <div
+      style={{
+        background: D.surface,
+        border: `1px solid ${D.border}`,
+        borderRadius: "14px",
+        padding: "20px",
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function FieldLabel({ children }) {
+  return (
+    <span
+      style={{
+        fontSize: "10px",
+        fontWeight: 700,
+        color: D.faint,
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+        display: "block",
+        marginBottom: "6px",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function MetricTile({ label, value, icon: Icon, color }) {
+  return (
+    <div
+      style={{
+        padding: "12px",
+        background: "rgba(255,255,255,0.03)",
+        borderRadius: "10px",
+        border: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "5px",
+          marginBottom: "6px",
+        }}
+      >
+        <Icon size={11} style={{ color }} />
+        <span
+          style={{
+            fontSize: "9px",
+            color: D.faint,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: "15px",
+          fontWeight: 800,
+          color,
+          fontFamily: "monospace",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ExecLogRow({ entry }) {
+  const sideColor = entry.side === "buy" ? D.green : D.red;
+  const modeColor = entry.mode === "live" ? D.red : D.paper;
+  return (
+    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+      <td
+        style={{
+          padding: "7px 0",
+          fontSize: "9px",
+          color: D.faint,
+          fontFamily: "monospace",
+        }}
+      >
+        {new Date(entry.ts).toLocaleTimeString()}
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          fontFamily: "monospace",
+          fontWeight: 700,
+          color: "#fff",
+        }}
+      >
+        {entry.symbol}
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          fontWeight: 700,
+          color: sideColor,
+          fontFamily: "monospace",
+        }}
+      >
+        {entry.side?.toUpperCase()}
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          color: D.muted,
+          fontFamily: "monospace",
+          textAlign: "right",
+        }}
+      >
+        {parseFloat(entry.qty || 0).toFixed(4)}
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          color: D.muted,
+          fontFamily: "monospace",
+          textAlign: "right",
+        }}
+      >
+        $
+        {parseFloat(entry.fillPrice || 0).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 4,
+        })}
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          color: entry.slippageBps > 10 ? D.amber : D.green,
+          fontFamily: "monospace",
+          textAlign: "right",
+        }}
+      >
+        {(entry.slippageBps || 0).toFixed(1)}bps
+      </td>
+      <td
+        style={{
+          padding: "7px 4px",
+          fontSize: "10px",
+          color: D.faint,
+          fontFamily: "monospace",
+          textAlign: "right",
+        }}
+      >
+        {entry.latencyMs}ms
+      </td>
+      <td style={{ padding: "7px 0", textAlign: "right" }}>
+        <span
+          style={{
+            fontSize: "8px",
+            fontWeight: 700,
+            color: modeColor,
+            background: `${modeColor}18`,
+            border: `1px solid ${modeColor}30`,
+            padding: "2px 6px",
+            borderRadius: "3px",
+            letterSpacing: "0.08em",
+          }}
+        >
+          {entry.mode?.toUpperCase()}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+// ── Live Mode Confirmation Modal ──────────────────────────────────────────────
+function LiveConfirmModal({ onConfirm, onCancel }) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0,0,0,0.85)",
+        backdropFilter: "blur(8px)",
+      }}
+    >
+      <div
+        style={{
+          background: "#0d0d0d",
+          border: "1px solid rgba(239,68,68,0.35)",
+          borderRadius: "16px",
+          padding: "32px",
+          maxWidth: "420px",
+          width: "90%",
+          boxShadow: "0 0 60px rgba(239,68,68,0.15)",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            marginBottom: "20px",
+          }}
+        >
+          <div
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "12px",
+              background: "rgba(239,68,68,0.12)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <AlertTriangle size={22} style={{ color: D.red }} />
+          </div>
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "17px",
+                fontWeight: 800,
+                color: "#fff",
+              }}
+            >
+              Switch to Live Execution?
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "12px",
+                color: D.muted,
+                marginTop: "2px",
+              }}
+            >
+              This affects every agent and order on the platform
+            </p>
+          </div>
+        </div>
+
+        {/* Warning body */}
+        <div
+          style={{
+            padding: "16px",
+            background: "rgba(239,68,68,0.06)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            borderRadius: "10px",
+            marginBottom: "20px",
+          }}
+        >
+          <ul
+            style={{
+              margin: 0,
+              padding: "0 0 0 16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            {[
+              "All agents will route orders to real markets immediately",
+              "Every order placed commits real capital from your broker account",
+              "There is no undo — filled orders execute at market price",
+              "Switch back to Paper mode before testing any new strategy",
+            ].map((w, i) => (
+              <li
+                key={i}
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(255,255,255,0.7)",
+                  lineHeight: "1.5",
+                }}
+              >
+                {w}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Acknowledgement checkbox */}
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "12px",
+            cursor: "pointer",
+            marginBottom: "20px",
+            userSelect: "none",
+          }}
+        >
+          <div
+            onClick={() => setChecked((p) => !p)}
+            style={{
+              width: "18px",
+              height: "18px",
+              borderRadius: "5px",
+              border: `2px solid ${checked ? D.red : "rgba(255,255,255,0.2)"}`,
+              background: checked ? "rgba(239,68,68,0.2)" : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              marginTop: "1px",
+              cursor: "pointer",
+              transition: "all 0.2s",
+            }}
+          >
+            {checked && <CheckCircle size={11} style={{ color: D.red }} />}
+          </div>
+          <span style={{ fontSize: "12px", color: D.muted, lineHeight: "1.5" }}>
+            I understand that{" "}
+            <strong style={{ color: "#fff" }}>real capital is at risk</strong>{" "}
+            and I have verified my broker connection and strategy settings.
+          </span>
+        </label>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: "11px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "10px",
+              color: D.muted,
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Stay on Paper
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!checked}
+            style={{
+              flex: 1,
+              padding: "11px",
+              background: checked
+                ? "rgba(239,68,68,0.85)"
+                : "rgba(239,68,68,0.15)",
+              border: `1px solid ${checked ? D.red : "rgba(239,68,68,0.2)"}`,
+              borderRadius: "10px",
+              color: checked ? "#fff" : "rgba(255,255,255,0.3)",
+              fontSize: "13px",
+              fontWeight: 800,
+              cursor: checked ? "pointer" : "not-allowed",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px",
+            }}
+          >
+            <AlertTriangle size={12} />
+            Confirm Live
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function BrokerSettingsPage() {
+  const executionMode = useOmniStore((s) => s.executionMode);
+  const setExecutionMode = useOmniStore((s) => s.setExecutionMode);
+  const routeTrade = useOmniStore((s) => s.routeTrade);
+  const wsStatus = useOmniStore((s) => s.wsStatus);
+  const wsLatency = useOmniStore((s) => s.wsLatency);
+  const pingWs = useOmniStore((s) => s.pingWs);
+  const executionLog = useOmniStore((s) => s.executionLog);
+  const paperLiveMetrics = useOmniStore((s) => s.paperLiveMetrics);
+
+  const [connection, setConnection] = useState(null);
+  const [portfolio, setPortfolio] = useState(null);
+  const [connectLoading, setConnectLoading] = useState(false);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [connectError, setConnectError] = useState(null);
+  const [selectedBroker, setSelectedBroker] = useState("alpaca");
+  const [formData, setFormData] = useState({});
+  const [connectMode, setConnectMode] = useState("paper");
+  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+
+  const [orderForm, setOrderForm] = useState({
+    symbol: "BTC/USD",
+    side: "buy",
+    qty: "",
+    type: "market",
+  });
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderResult, setOrderResult] = useState(null);
+  const [orderError, setOrderError] = useState(null);
+  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [showExecLog, setShowExecLog] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const wsIntervalRef = useRef(null);
+
+  useEffect(() => {
+    fetchConnection();
+    pingWs();
+    wsIntervalRef.current = setInterval(() => pingWs(), 5000);
+    return () => {
+      if (wsIntervalRef.current) clearInterval(wsIntervalRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!connection || connection.status !== "connected") return;
+    fetchPortfolio();
+    const interval = setInterval(fetchPortfolio, 15000);
+    return () => clearInterval(interval);
+  }, [connection]);
+
+  async function fetchConnection() {
+    try {
+      const res = await fetch("/api/broker/connect");
+      if (!res.ok) throw new Error("Failed to load connection");
+      const data = await res.json();
+      setConnection(data.connection);
+    } catch (e) {
+      console.error("[BrokerSettings.fetchConnection]", e.message);
+    } finally {
+      setInitialLoad(false);
+    }
+  }
+
+  async function fetchPortfolio() {
+    setPortfolioLoading(true);
+    try {
+      const res = await fetch("/api/broker/portfolio");
+      if (!res.ok) throw new Error("Failed to sync portfolio");
+      const data = await res.json();
+      setPortfolio(data);
+    } catch (e) {
+      console.error("[BrokerSettings.fetchPortfolio]", e.message);
+    } finally {
+      setPortfolioLoading(false);
+    }
+  }
+
+  async function handleConnect(e) {
+    e.preventDefault();
+    setConnectLoading(true);
+    setConnectError(null);
+    const payload = { broker: selectedBroker, mode: connectMode, ...formData };
+    try {
+      const res = await fetch("/api/broker/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setConnectError(data.message || data.error || "Connection failed");
+        return;
+      }
+      await fetchConnection();
+      await fetchPortfolio();
+    } catch (e) {
+      setConnectError(e.message);
+    } finally {
+      setConnectLoading(false);
+    }
+  }
+
+  async function handlePlaceOrder(e) {
+    e.preventDefault();
+    setOrderLoading(true);
+    setOrderError(null);
+    setOrderResult(null);
+    try {
+      const result = await routeTrade({
+        symbol: orderForm.symbol,
+        side: orderForm.side,
+        qty: parseFloat(orderForm.qty),
+        type: orderForm.type,
+      });
+      if (!result.success) {
+        setOrderError(result.error || "Order rejected");
+        return;
+      }
+      setOrderResult(result.entry);
+      await fetchPortfolio();
+    } catch (e) {
+      setOrderError(e.message);
+    } finally {
+      setOrderLoading(false);
+    }
+  }
+
+  function handleRequestLiveMode() {
+    if (executionMode === "live") {
+      // Switching back to paper is always safe — no confirmation needed
+      setExecutionMode("paper");
+    } else {
+      setShowLiveConfirm(true);
+    }
+  }
+
+  function handleConfirmLive() {
+    setShowLiveConfirm(false);
+    setExecutionMode("live");
+  }
+
+  const broker = BROKERS.find((b) => b.id === selectedBroker);
+  const isConnected = connection?.status === "connected";
+  const displayPortfolio =
+    portfolio ||
+    (executionMode === "paper"
+      ? {
+          broker: "paper",
+          account: {
+            equity: useOmniStore.getState().paperPortfolio?.total_value || 0,
+            buyingPower:
+              useOmniStore.getState().paperPortfolio?.cash_balance || 0,
+            pnl: paperLiveMetrics.totalPnL,
+            pnlPct:
+              useOmniStore.getState().paperPortfolio?.total_return_percent || 0,
+          },
+          positions: useOmniStore.getState().paperPositions,
+        }
+      : null);
+
+  const pnl = displayPortfolio?.account?.pnl ?? 0;
+  const pnlPct = displayPortfolio?.account?.pnlPct ?? 0;
+
+  const inputStyle = {
+    width: "100%",
+    padding: "10px 12px",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: "8px",
+    color: "#ffffff",
+    fontSize: "13px",
+    fontFamily: "monospace",
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  if (initialLoad) {
+    return (
+      <InternalLayout>
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <RefreshCw
+            size={32}
+            style={{ color: D.muted, animation: "spin 1s linear infinite" }}
+          />
+          <style
+            jsx
+            global
+          >{`@keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }`}</style>
+        </div>
+      </InternalLayout>
+    );
+  }
+
+  return (
+    <InternalLayout>
+      {showLiveConfirm && (
+        <LiveConfirmModal
+          onConfirm={handleConfirmLive}
+          onCancel={() => setShowLiveConfirm(false)}
+        />
+      )}
+
+      <AppNav />
+
+      {/* ── PAGE HEADER ──────────────────────────────────────────────────── */}
+      <div
+        style={{
+          background: "#0a0a0a",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          padding: "20px 24px",
+        }}
+      >
+        <div className="max-w-[1200px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "10px",
+                background: "rgba(91,140,255,0.12)",
+                border: "1px solid rgba(91,140,255,0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Zap size={20} style={{ color: D.accent }} />
+            </div>
+            <div>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: "20px",
+                  fontWeight: 800,
+                  color: "#ffffff",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                Broker Settings
+              </h1>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "12px",
+                  color: D.muted,
+                  marginTop: "2px",
+                }}
+              >
+                Broker integration · Order routing · Real-time P&L
+              </p>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <WsLED status={wsStatus} latency={wsLatency} />
+            {isConnected && (
+              <button
+                onClick={fetchPortfolio}
+                disabled={portfolioLoading}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "7px 14px",
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "8px",
+                  color: D.muted,
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                <RefreshCw
+                  size={12}
+                  style={{
+                    animation: portfolioLoading
+                      ? "spin 1s linear infinite"
+                      : "none",
+                  }}
+                />
+                Sync
+              </button>
+            )}
+            <ConnectionBadge status={connection?.status || "disconnected"} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── EXECUTION MODE TOGGLE ────────────────────────────────────────── */}
+      <div
+        style={{
+          background: "#0d0d0d",
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          padding: "12px 24px",
+        }}
+      >
+        <div className="max-w-[1200px] mx-auto">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Layers size={13} style={{ color: D.faint }} />
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: D.faint,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                }}
+              >
+                Global Execution Mode
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "10px",
+                padding: "3px",
+                gap: "2px",
+              }}
+            >
+              {/* Paper button */}
+              <button
+                onClick={() => setExecutionMode("paper")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background:
+                    executionMode === "paper"
+                      ? "rgba(91,140,255,0.15)"
+                      : "transparent",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  outline:
+                    executionMode === "paper"
+                      ? `1px solid rgba(91,140,255,0.35)`
+                      : "none",
+                }}
+              >
+                <span style={{ fontSize: "14px" }}>📝</span>
+                <div style={{ textAlign: "left" }}>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      color: executionMode === "paper" ? D.paper : D.muted,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    PAPER TRADING
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: D.faint,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Simulated · No real capital
+                  </div>
+                </div>
+                {executionMode === "paper" && (
+                  <CheckCircle size={13} style={{ color: D.paper }} />
+                )}
+              </button>
+
+              {/* Live button — opens confirmation modal */}
+              <button
+                onClick={handleRequestLiveMode}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background:
+                    executionMode === "live"
+                      ? "rgba(239,68,68,0.12)"
+                      : "transparent",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  outline:
+                    executionMode === "live"
+                      ? `1px solid rgba(239,68,68,0.35)`
+                      : "none",
+                }}
+              >
+                <span style={{ fontSize: "14px" }}>🔴</span>
+                <div style={{ textAlign: "left" }}>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      color: executionMode === "live" ? D.red : D.muted,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    LIVE EXECUTION
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      color: D.faint,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Real orders · Real money
+                  </div>
+                </div>
+                {executionMode === "live" && (
+                  <CheckCircle size={13} style={{ color: D.red }} />
+                )}
+              </button>
+            </div>
+
+            {executionMode === "live" && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  padding: "6px 12px",
+                  background: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: D.red,
+                    boxShadow: `0 0 8px ${D.red}`,
+                  }}
+                  className="ws-pulse"
+                />
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    color: D.red,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  ⚠ LIVE — Real capital is at risk. Verify every order.
+                </span>
+              </div>
+            )}
+
+            {wsLatency !== null && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  marginLeft: "auto",
+                }}
+              >
+                <Clock size={10} style={{ color: D.faint }} />
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: D.faint,
+                    fontFamily: "monospace",
+                  }}
+                >
+                  RTT {wsLatency}ms
+                </span>
+                <Gauge size={10} style={{ color: D.faint }} />
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color:
+                      wsLatency < 200
+                        ? D.green
+                        : wsLatency < 500
+                          ? D.amber
+                          : D.red,
+                    fontFamily: "monospace",
+                    fontWeight: 700,
+                  }}
+                >
+                  {wsLatency < 200 ? "LOW" : wsLatency < 500 ? "MED" : "HIGH"}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-6">
+        {/* ── LEFT: Connect Panel ───────────────────────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <Card>
+            <h2
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: "#ffffff",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Broker Connection
+            </h2>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                marginBottom: "16px",
+              }}
+            >
+              {BROKERS.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => {
+                    setSelectedBroker(b.id);
+                    setFormData({});
+                    setConnectError(null);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "12px",
+                    borderRadius: "10px",
+                    background:
+                      selectedBroker === b.id
+                        ? "rgba(91,140,255,0.1)"
+                        : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${selectedBroker === b.id ? "rgba(91,140,255,0.4)" : "rgba(255,255,255,0.07)"}`,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <span style={{ fontSize: "22px" }}>{b.logo}</span>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        color: "#fff",
+                      }}
+                    >
+                      {b.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        color: D.muted,
+                        marginTop: "1px",
+                      }}
+                    >
+                      {b.description}
+                    </div>
+                  </div>
+                  {selectedBroker === b.id && (
+                    <CheckCircle
+                      size={14}
+                      style={{ color: D.accent, flexShrink: 0 }}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {broker?.modes?.length > 1 && (
+              <div style={{ marginBottom: "16px" }}>
+                <FieldLabel>API Mode</FieldLabel>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  {broker.modes.map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setConnectMode(m)}
+                      style={{
+                        flex: 1,
+                        padding: "9px",
+                        borderRadius: "8px",
+                        background:
+                          connectMode === m ? "#fff" : "rgba(255,255,255,0.04)",
+                        border: `1px solid ${connectMode === m ? "#fff" : "rgba(255,255,255,0.1)"}`,
+                        color: connectMode === m ? "#050505" : D.muted,
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {m === "live" ? "🔴 LIVE" : "📝 PAPER"}
+                    </button>
+                  ))}
+                </div>
+                {connectMode === "live" && (
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      color: D.red,
+                      marginTop: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <AlertTriangle size={10} /> Live mode places real orders
+                    with real money.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {broker?.fields?.length > 0 && (
+              <form
+                onSubmit={handleConnect}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                {broker.fields.map((field) => (
+                  <div key={field.key}>
+                    <FieldLabel>{field.label}</FieldLabel>
+                    <input
+                      type={field.type}
+                      placeholder={field.placeholder}
+                      value={formData[field.key] || ""}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: e.target.value,
+                        }))
+                      }
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+                ))}
+
+                {broker.note && (
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      color: D.faint,
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      margin: 0,
+                    }}
+                  >
+                    {broker.note}
+                  </p>
+                )}
+
+                {connectError && (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      padding: "10px 12px",
+                      background: "rgba(239,68,68,0.08)",
+                      border: "1px solid rgba(239,68,68,0.2)",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <AlertTriangle
+                      size={13}
+                      style={{ color: D.red, flexShrink: 0 }}
+                    />
+                    <p style={{ margin: 0, fontSize: "12px", color: D.red }}>
+                      {connectError}
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={connectLoading}
+                  style={{
+                    padding: "11px",
+                    background: "#fff",
+                    color: "#050505",
+                    border: "none",
+                    borderRadius: "10px",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor: connectLoading ? "not-allowed" : "pointer",
+                    opacity: connectLoading ? 0.7 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  {connectLoading ? (
+                    <RefreshCw
+                      size={14}
+                      style={{ animation: "spin 1s linear infinite" }}
+                    />
+                  ) : (
+                    <Link2 size={14} />
+                  )}
+                  {connectLoading ? "Connecting..." : "Connect"}
+                </button>
+
+                {broker.docsUrl && (
+                  <a
+                    href={broker.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "4px",
+                      fontSize: "11px",
+                      color: D.faint,
+                      textDecoration: "none",
+                    }}
+                  >
+                    <ExternalLink size={10} /> Get API Keys
+                  </a>
+                )}
+              </form>
+            )}
+
+            {broker?.fields?.length === 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                <p style={{ margin: 0, fontSize: "12px", color: D.muted }}>
+                  {broker.note}
+                </p>
+                <button
+                  onClick={handleConnect}
+                  disabled={connectLoading}
+                  style={{
+                    padding: "11px",
+                    background: "#fff",
+                    color: "#050505",
+                    border: "none",
+                    borderRadius: "10px",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor: connectLoading ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                  }}
+                >
+                  {connectLoading ? (
+                    <RefreshCw
+                      size={14}
+                      style={{ animation: "spin 1s linear infinite" }}
+                    />
+                  ) : (
+                    <CheckCircle size={14} />
+                  )}
+                  {connectLoading ? "Activating..." : "Activate Paper Mode"}
+                </button>
+              </div>
+            )}
+          </Card>
+
+          {/* Security notice — honest version */}
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              padding: "14px 16px",
+              background: "rgba(91,140,255,0.06)",
+              border: "1px solid rgba(91,140,255,0.2)",
+              borderRadius: "12px",
+            }}
+          >
+            <Lock
+              size={14}
+              style={{ color: D.accent, flexShrink: 0, marginTop: "1px" }}
+            />
+            <div>
+              <p
+                style={{
+                  margin: "0 0 4px 0",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: D.accent,
+                }}
+              >
+                Credential Security
+              </p>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "11px",
+                  color: D.muted,
+                  lineHeight: "1.6",
+                }}
+              >
+                API keys are stored in your private database. Use{" "}
+                <strong style={{ color: "rgba(255,255,255,0.6)" }}>
+                  read-only keys
+                </strong>{" "}
+                where your broker supports them, and never share keys with third
+                parties. Revoke and regenerate keys immediately if compromised.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── RIGHT: Portfolio + Orders + Exec Log ─────────────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {isConnected || executionMode === "paper" ? (
+            <>
+              <Card>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: "#ffffff",
+                    }}
+                  >
+                    {executionMode === "paper"
+                      ? "📝 Paper Portfolio"
+                      : `🔗 ${connection?.broker?.toUpperCase() || "Live"} Account`}
+                  </h2>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: D.faint,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {displayPortfolio?.lastSynced
+                      ? `Synced ${new Date(displayPortfolio.lastSynced).toLocaleTimeString()}`
+                      : ""}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-[10px] mb-5">
+                  <MetricTile
+                    label="Portfolio Value"
+                    value={`$${(displayPortfolio?.account?.equity || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+                    icon={DollarSign}
+                    color="#ffffff"
+                  />
+                  <MetricTile
+                    label="Buying Power"
+                    value={`$${(displayPortfolio?.account?.buyingPower || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+                    icon={Zap}
+                    color={D.accent}
+                  />
+                  <MetricTile
+                    label="Day P&L"
+                    value={`${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}`}
+                    icon={pnl >= 0 ? TrendingUp : TrendingDown}
+                    color={pnl >= 0 ? D.green : D.red}
+                  />
+                  <MetricTile
+                    label="Day Return"
+                    value={`${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(3)}%`}
+                    icon={Activity}
+                    color={pnlPct >= 0 ? D.green : D.red}
+                  />
+                </div>
+
+                {executionMode === "paper" && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gap: "8px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    {[
+                      {
+                        label: "Sharpe",
+                        value: paperLiveMetrics.sharpe.toFixed(2),
+                        color: D.accent,
+                      },
+                      {
+                        label: "Win Rate",
+                        value: `${paperLiveMetrics.winRate.toFixed(1)}%`,
+                        color: D.green,
+                      },
+                      {
+                        label: "Exposure",
+                        value: `$${paperLiveMetrics.openExposure.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+                        color: D.amber,
+                      },
+                    ].map((m) => (
+                      <div
+                        key={m.label}
+                        style={{
+                          padding: "10px",
+                          background: "rgba(255,255,255,0.02)",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(255,255,255,0.05)",
+                          textAlign: "center",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "9px",
+                            color: D.faint,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.08em",
+                            marginBottom: "4px",
+                          }}
+                        >
+                          {m.label}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "16px",
+                            fontWeight: 800,
+                            color: m.color,
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {m.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {displayPortfolio?.positions?.length > 0 ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <p
+                      style={{
+                        margin: "0 0 10px 0",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: D.muted,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                      }}
+                    >
+                      Open Positions
+                    </p>
+                    <table
+                      style={{ width: "100%", borderCollapse: "collapse" }}
+                    >
+                      <thead>
+                        <tr
+                          style={{
+                            borderBottom: "1px solid rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          {[
+                            "Symbol",
+                            "Qty",
+                            "Avg Entry",
+                            "Current",
+                            "Mkt Value",
+                            "Unrealized P&L",
+                          ].map((h) => (
+                            <th
+                              key={h}
+                              style={{
+                                padding: "6px 0",
+                                fontSize: "9px",
+                                color: D.faint,
+                                fontWeight: 600,
+                                textAlign: "right",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.07em",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayPortfolio.positions.map((pos, i) => {
+                          const positivePnl =
+                            (pos.unrealizedPnl ?? pos.unrealized_pnl ?? 0) >= 0;
+                          return (
+                            <tr
+                              key={i}
+                              style={{
+                                borderBottom:
+                                  "1px solid rgba(255,255,255,0.03)",
+                              }}
+                            >
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontWeight: 700,
+                                  color: "#ffffff",
+                                  fontSize: "12px",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {pos.symbol}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  color: D.muted,
+                                  textAlign: "right",
+                                }}
+                              >
+                                {pos.qty || pos.quantity}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  color: D.muted,
+                                  textAlign: "right",
+                                }}
+                              >
+                                $
+                                {parseFloat(
+                                  pos.avgEntry || pos.avg_entry_price || 0,
+                                ).toFixed(2)}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  color: D.muted,
+                                  textAlign: "right",
+                                }}
+                              >
+                                $
+                                {parseFloat(
+                                  pos.currentPrice ||
+                                    pos.current_price ||
+                                    pos.avgEntry ||
+                                    0,
+                                ).toFixed(2)}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  color: D.muted,
+                                  textAlign: "right",
+                                }}
+                              >
+                                $
+                                {parseFloat(
+                                  pos.marketValue || pos.market_value || 0,
+                                ).toFixed(2)}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 0",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  color: positivePnl ? D.green : D.red,
+                                  textAlign: "right",
+                                }}
+                              >
+                                {positivePnl ? "+" : ""}$
+                                {parseFloat(
+                                  pos.unrealizedPnl || pos.unrealized_pnl || 0,
+                                ).toFixed(2)}
+                                <span
+                                  style={{ fontSize: "9px", color: D.faint }}
+                                >
+                                  {" "}
+                                  ({positivePnl ? "+" : ""}
+                                  {parseFloat(
+                                    pos.unrealizedPnlPct ||
+                                      pos.unrealized_pnl_percent ||
+                                      0,
+                                  ).toFixed(2)}
+                                  %)
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p
+                    style={{
+                      textAlign: "center",
+                      fontSize: "13px",
+                      color: D.faint,
+                      padding: "16px 0",
+                    }}
+                  >
+                    No open positions.
+                  </p>
+                )}
+              </Card>
+
+              {/* ── ORDER ENTRY ────────────────────────────────────────── */}
+              <Card>
+                <button
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                  onClick={() => setShowOrderForm((p) => !p)}
+                >
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: "#ffffff",
+                    }}
+                  >
+                    <Activity size={15} style={{ color: D.accent }} />
+                    Place Order
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        fontWeight: 800,
+                        color: executionMode === "live" ? D.red : D.paper,
+                        background:
+                          executionMode === "live"
+                            ? "rgba(239,68,68,0.12)"
+                            : "rgba(91,140,255,0.12)",
+                        border: `1px solid ${executionMode === "live" ? "rgba(239,68,68,0.3)" : "rgba(91,140,255,0.3)"}`,
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        letterSpacing: "0.1em",
+                      }}
+                    >
+                      {executionMode === "live" ? "🔴 LIVE" : "📝 PAPER"}
+                    </span>
+                  </span>
+                  {showOrderForm ? (
+                    <ChevronUp size={16} style={{ color: D.muted }} />
+                  ) : (
+                    <ChevronDown size={16} style={{ color: D.muted }} />
+                  )}
+                </button>
+
+                {showOrderForm && (
+                  <form
+                    onSubmit={handlePlaceOrder}
+                    style={{
+                      marginTop: "16px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "12px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: "12px",
+                      }}
+                    >
+                      <div>
+                        <FieldLabel>Symbol</FieldLabel>
+                        <input
+                          type="text"
+                          value={orderForm.symbol}
+                          onChange={(e) =>
+                            setOrderForm((p) => ({
+                              ...p,
+                              symbol: e.target.value.toUpperCase(),
+                            }))
+                          }
+                          style={inputStyle}
+                          placeholder="BTC/USD"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Quantity</FieldLabel>
+                        <input
+                          type="number"
+                          value={orderForm.qty}
+                          onChange={(e) =>
+                            setOrderForm((p) => ({ ...p, qty: e.target.value }))
+                          }
+                          style={inputStyle}
+                          placeholder="0.01"
+                          min="0.0001"
+                          max="10000"
+                          step="0.0001"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: "12px",
+                      }}
+                    >
+                      <div>
+                        <FieldLabel>Side</FieldLabel>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          {["buy", "sell"].map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() =>
+                                setOrderForm((p) => ({ ...p, side: s }))
+                              }
+                              style={{
+                                flex: 1,
+                                padding: "9px",
+                                borderRadius: "8px",
+                                border: "none",
+                                background:
+                                  orderForm.side === s
+                                    ? s === "buy"
+                                      ? D.green
+                                      : D.red
+                                    : "rgba(255,255,255,0.05)",
+                                color: "#fff",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "5px",
+                              }}
+                            >
+                              {s === "buy" ? (
+                                <ArrowUpCircle size={12} />
+                              ) : (
+                                <ArrowDownCircle size={12} />
+                              )}
+                              {s.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <FieldLabel>Order Type</FieldLabel>
+                        <select
+                          value={orderForm.type}
+                          onChange={(e) =>
+                            setOrderForm((p) => ({
+                              ...p,
+                              type: e.target.value,
+                            }))
+                          }
+                          style={{ ...inputStyle, cursor: "pointer" }}
+                        >
+                          <option value="market">Market</option>
+                          <option value="limit">Limit</option>
+                          <option value="stop">Stop</option>
+                          <option value="stop_limit">Stop Limit</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {orderError && (
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "8px",
+                          padding: "10px 12px",
+                          background: "rgba(239,68,68,0.08)",
+                          border: "1px solid rgba(239,68,68,0.2)",
+                          borderRadius: "8px",
+                        }}
+                      >
+                        <AlertTriangle
+                          size={12}
+                          style={{ color: D.red, flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: "12px", color: D.red }}>
+                          {orderError}
+                        </span>
+                      </div>
+                    )}
+
+                    {orderResult && (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          background: "rgba(16,185,129,0.08)",
+                          border: "1px solid rgba(16,185,129,0.2)",
+                          borderRadius: "8px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "7px",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          <CheckCircle size={12} style={{ color: D.green }} />
+                          <span
+                            style={{
+                              fontSize: "12px",
+                              color: D.green,
+                              fontWeight: 700,
+                            }}
+                          >
+                            Order Filled — {orderResult.id}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr 1fr",
+                            gap: "8px",
+                          }}
+                        >
+                          {[
+                            {
+                              label: "Fill Price",
+                              value: `$${(orderResult.fillPrice || 0).toFixed(4)}`,
+                            },
+                            {
+                              label: "Slippage",
+                              value: `${(orderResult.slippageBps || 0).toFixed(1)} bps`,
+                            },
+                            {
+                              label: "Latency",
+                              value: `${orderResult.latencyMs}ms`,
+                            },
+                          ].map((d) => (
+                            <div key={d.label} style={{ textAlign: "center" }}>
+                              <div
+                                style={{
+                                  fontSize: "8px",
+                                  color: D.faint,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.08em",
+                                }}
+                              >
+                                {d.label}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  fontWeight: 700,
+                                  color: D.green,
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {d.value}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {executionMode === "live" && (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          background: "rgba(239,68,68,0.08)",
+                          border: "1px solid rgba(239,68,68,0.2)",
+                          borderRadius: "8px",
+                        }}
+                      >
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: "11px",
+                            color: D.red,
+                            fontWeight: 700,
+                          }}
+                        >
+                          ⚠️ LIVE ORDER — Real capital will be committed. Verify
+                          before submitting.
+                        </p>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={orderLoading}
+                      style={{
+                        padding: "12px",
+                        background: orderForm.side === "buy" ? D.green : D.red,
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        cursor: orderLoading ? "not-allowed" : "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        opacity: orderLoading ? 0.7 : 1,
+                      }}
+                    >
+                      {orderLoading && (
+                        <RefreshCw
+                          size={14}
+                          style={{ animation: "spin 1s linear infinite" }}
+                        />
+                      )}
+                      {orderLoading
+                        ? "Routing Order..."
+                        : `${orderForm.side.toUpperCase()} ${orderForm.qty || "?"} ${orderForm.symbol} · ${executionMode.toUpperCase()}`}
+                    </button>
+                  </form>
+                )}
+              </Card>
+
+              {/* ── EXECUTION LOG ──────────────────────────────────────── */}
+              <Card>
+                <button
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    marginBottom: showExecLog ? "14px" : 0,
+                  }}
+                  onClick={() => setShowExecLog((p) => !p)}
+                >
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: "#ffffff",
+                    }}
+                  >
+                    <ListOrdered size={15} style={{ color: D.accent }} />
+                    Execution Log
+                    {executionLog.length > 0 && (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          background: "rgba(91,140,255,0.15)",
+                          color: D.accent,
+                          padding: "1px 7px",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(91,140,255,0.2)",
+                        }}
+                      >
+                        {executionLog.length}
+                      </span>
+                    )}
+                  </span>
+                  {showExecLog ? (
+                    <ChevronUp size={16} style={{ color: D.muted }} />
+                  ) : (
+                    <ChevronDown size={16} style={{ color: D.muted }} />
+                  )}
+                </button>
+
+                {showExecLog && (
+                  <>
+                    {executionLog.length === 0 ? (
+                      <p
+                        style={{
+                          textAlign: "center",
+                          fontSize: "13px",
+                          color: D.faint,
+                          padding: "16px 0",
+                        }}
+                      >
+                        No fills recorded this session.
+                      </p>
+                    ) : (
+                      <div style={{ overflowX: "auto" }}>
+                        <table
+                          style={{ width: "100%", borderCollapse: "collapse" }}
+                        >
+                          <thead>
+                            <tr
+                              style={{
+                                borderBottom:
+                                  "1px solid rgba(255,255,255,0.06)",
+                              }}
+                            >
+                              {[
+                                "Time",
+                                "Symbol",
+                                "Side",
+                                "Qty",
+                                "Fill",
+                                "Slip",
+                                "RTT",
+                                "Mode",
+                              ].map((h) => (
+                                <th
+                                  key={h}
+                                  style={{
+                                    padding: "5px 4px",
+                                    fontSize: "8px",
+                                    color: D.faint,
+                                    fontWeight: 600,
+                                    textAlign: h === "Time" ? "left" : "right",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.07em",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {executionLog.map((entry, i) => (
+                              <ExecLogRow
+                                key={`${entry.id}-${i}`}
+                                entry={entry}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+            </>
+          ) : (
+            <Card
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: "320px",
+                textAlign: "center",
+              }}
+            >
+              <Link2Off
+                size={40}
+                style={{ color: "rgba(255,255,255,0.1)", marginBottom: "16px" }}
+              />
+              <h3
+                style={{
+                  margin: "0 0 8px 0",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                  color: "#ffffff",
+                }}
+              >
+                No Broker Connected
+              </h3>
+              <p
+                style={{
+                  margin: "0 0 24px 0",
+                  fontSize: "13px",
+                  color: D.muted,
+                  maxWidth: "300px",
+                  lineHeight: "1.6",
+                }}
+              >
+                Connect Alpaca or switch to Paper Trading mode to view live P&L,
+                positions, and execute orders.
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                }}
+              >
+                {[
+                  { e: "🦙", l: "Alpaca" },
+                  { e: "📝", l: "Paper" },
+                ].map((b) => (
+                  <div
+                    key={b.l}
+                    style={{
+                      padding: "12px",
+                      background: "rgba(255,255,255,0.03)",
+                      borderRadius: "10px",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <span style={{ fontSize: "22px" }}>{b.e}</span>
+                    <span style={{ fontSize: "11px", color: D.faint }}>
+                      {b.l}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Risk Disclosure */}
+          <div
+            style={{
+              padding: "16px 20px",
+              background: "rgba(239,68,68,0.06)",
+              border: "1px solid rgba(239,68,68,0.18)",
+              borderRadius: "12px",
+              borderLeft: "3px solid #ef4444",
+            }}
+          >
+            <div style={{ display: "flex", gap: "10px" }}>
+              <AlertTriangle
+                size={14}
+                style={{ color: D.red, flexShrink: 0, marginTop: "2px" }}
+              />
+              <div>
+                <p
+                  style={{
+                    margin: "0 0 4px 0",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    color: D.red,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Risk Disclosure
+                </p>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "11px",
+                    color: D.muted,
+                    lineHeight: "1.7",
+                  }}
+                >
+                  Quvanti Labs is a research-first terminal. We assume{" "}
+                  <strong style={{ color: "rgba(255,255,255,0.6)" }}>
+                    no liability
+                  </strong>{" "}
+                  for exchange failures, data errors, or capital loss. All
+                  backtested results are simulated.{" "}
+                  <strong style={{ color: D.red }}>
+                    Trading involves a 100% risk of capital loss.
+                  </strong>{" "}
+                  Not financial advice.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes ws-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .ws-pulse { animation: ws-pulse 1.5s ease-in-out infinite; }
+        select option { background: #1a1a1a; color: #ffffff; }
+      `}</style>
+    </InternalLayout>
+  );
+}
+
+
+
