@@ -1,0 +1,1276 @@
+"use client";
+
+/**
+ * AGENT TERMINAL — Quvanti Labs
+ * ─────────────────────────────────────────────────────────────────────────────
+ * A glass morphic slide-over panel that surfaces live quantitative metrics
+ * for a specific agent, computed from real CoinGecko / Yahoo Finance data.
+ *
+ * Displays:
+ *   ─ Live price + data source
+ *   ─ Hurst Exponent (H) with regime label
+ *   ─ Monte Carlo GBM parameters (μ, σ, percentile outcomes)
+ *   ─ Fractional Differentiation weights (d = 0.4)
+ *   ─ Value at Risk 95% (dollar + percent)
+ *   ─ Treynor Ratio vs benchmark
+ *   ─ Volume Profile (POC, VAH, VAL)
+ *   ─ Walk-Forward IS vs OOS overfit graph
+ *   ─ Export modal: JSON blueprint + Pine Script skeleton
+ *
+ * Props:
+ *   agentId     {number}    - Agent to display (fetches metrics on mount)
+ *   agentName   {string}    - Display name
+ *   agentData   {object}    - Full agent object (parsed_strategy, etc.)
+ *   onClose     {function}  - Closes the panel
+ */
+
+import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  RefreshCw,
+  Sigma,
+  Brain,
+  Layers,
+  Shield,
+  BarChart3,
+  AlertTriangle,
+  Download,
+  Copy,
+  CheckCircle,
+  TrendingUp,
+  Activity,
+  Zap,
+  ChevronRight,
+} from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+import SovereignButton from "@/components/SovereignButton";
+
+// ── Pine Script Generator ─────────────────────────────────────────────────────
+function generatePineScript(agentName, strategy, metrics) {
+  const asset = (strategy?.asset || "BTC").toUpperCase();
+  const stopLoss = strategy?.risk_rules?.stop_loss_pct ?? 2;
+  const takeProfit = strategy?.risk_rules?.take_profit_pct ?? 5;
+  const entryLines = (
+    strategy?.entry_conditions || ["Price cross above 50-day MA"]
+  )
+    .map((c) => `// ENTRY: ${c}`)
+    .join("\n");
+  const exitLines = (
+    strategy?.exit_conditions || ["RSI > 70", "Stop loss triggered"]
+  )
+    .map((c) => `// EXIT: ${c}`)
+    .join("\n");
+
+  const hurstH =
+    typeof metrics?.hurst?.H === "number" ? metrics.hurst.H : "N/A";
+  const mcMu = metrics?.monteCarlo?.mu ?? 0;
+  const mcSigma = metrics?.monteCarlo?.sigma ?? 0;
+
+  return `//@version=5
+strategy(
+  title       = "${agentName} — Quvanti Labs Export",
+  overlay     = true,
+  default_qty_type  = strategy.percent_of_equity,
+  default_qty_value = 10,
+  initial_capital   = 10000,
+  commission_type   = strategy.commission.percent,
+  commission_value  = 0.1
+)
+
+// ── Quvanti Labs — Agent Blueprint Export ──────────────────────────────────────
+// Asset   : ${asset}
+// Exported: ${new Date().toISOString()}
+// Source  : quvantilabs.com
+//
+// Quantitative Parameters (from live analysis):
+//   Hurst Exponent (H) = ${hurstH}   [H > 0.55 = trending, H < 0.45 = mean-reverting]
+//   Annualised μ (drift) = ${mcMu}%
+//   Annualised σ (vol)   = ${mcSigma}%
+//   Stop Loss            = ${stopLoss}%
+//   Take Profit          = ${takeProfit}%
+
+// ── Indicators ─────────────────────────────────────────────────────────────────
+rsiLen    = input.int(14, "RSI Length", minval=2)
+smaFast   = input.int(50, "Fast SMA", minval=1)
+smaSlow   = input.int(200, "Slow SMA", minval=1)
+bbLen     = input.int(20, "Bollinger Length", minval=2)
+bbMult    = input.float(2.0, "Bollinger StdDev", minval=0.1, step=0.1)
+
+rsi14   = ta.rsi(close, rsiLen)
+sma50   = ta.sma(close, smaFast)
+sma200  = ta.sma(close, smaSlow)
+[bbMid, bbUpper, bbLower] = ta.bb(close, bbLen, bbMult)
+
+plot(sma50,   "SMA Fast",  color=color.new(color.blue, 30),   linewidth=1)
+plot(sma200,  "SMA Slow",  color=color.new(color.orange, 30), linewidth=2)
+plot(bbUpper, "BB Upper",  color=color.new(color.gray, 60),   linewidth=1)
+plot(bbLower, "BB Lower",  color=color.new(color.gray, 60),   linewidth=1)
+
+// ── Entry Conditions ───────────────────────────────────────────────────────────
+${entryLines}
+entrySignal = ta.crossover(sma50, sma200) and rsi14 < 70
+
+// ── Exit Conditions ────────────────────────────────────────────────────────────
+${exitLines}
+exitSignal  = ta.crossunder(sma50, sma200) or rsi14 > 75
+
+// ── Risk Management ────────────────────────────────────────────────────────────
+slPct = ${stopLoss} / 100.0
+tpPct = ${takeProfit} / 100.0
+
+// ── Execution ──────────────────────────────────────────────────────────────────
+if entrySignal and strategy.position_size == 0
+    strategy.entry("Long", strategy.long, comment="QV Entry")
+    strategy.exit(
+      "TP/SL", "Long",
+      profit = close * tpPct / syminfo.mintick,
+      loss   = close * slPct / syminfo.mintick
+    )
+
+if exitSignal and strategy.position_size > 0
+    strategy.close("Long", comment="QV Exit")
+
+// ── Labels ─────────────────────────────────────────────────────────────────────
+bgcolor(entrySignal ? color.new(color.green, 90) : na, title="Entry Signal")
+bgcolor(exitSignal  ? color.new(color.red,   90) : na, title="Exit Signal")`;
+}
+
+// ── JSON Blueprint Generator ──────────────────────────────────────────────────
+function generateJSON(agentId, agentName, strategy, metrics, backtestSummary) {
+  return JSON.stringify(
+    {
+      meta: {
+        source: "Quvanti Labs — quvantilabs.com",
+        exportedAt: new Date().toISOString(),
+        agentId,
+        agentName,
+        version: "1.0",
+      },
+      strategy: {
+        asset: strategy?.asset || "BTC",
+        entryConditions: strategy?.entry_conditions || [],
+        exitConditions: strategy?.exit_conditions || [],
+        riskRules: strategy?.risk_rules || {},
+      },
+      quantMetrics: {
+        hurstExponent: {
+          H: metrics?.hurst?.H,
+          regime: metrics?.hurst?.category,
+          interpretation: metrics?.hurst?.interpretation,
+        },
+        monteCarlo: {
+          annualisedMu_pct: metrics?.monteCarlo?.mu,
+          annualisedSigma_pct: metrics?.monteCarlo?.sigma,
+          probabilityOfRuin_pct: metrics?.monteCarlo?.probabilityOfRuin,
+          medianReturn_pct: metrics?.monteCarlo?.medianReturn,
+          paths: metrics?.monteCarlo?.paths,
+        },
+        fracDiff: {
+          d: 0.4,
+          weights: metrics?.fracDiff?.weights,
+        },
+        var95: {
+          varPct: metrics?.var95?.varPct,
+          varDollar: metrics?.var95?.varDollar,
+          confidence: 95,
+        },
+        treynorRatio: {
+          value: metrics?.treynor?.treynor,
+          beta: metrics?.treynor?.beta,
+          alpha_pct: metrics?.treynor?.alpha,
+          benchmark: metrics?.treynor?.benchmark,
+        },
+        volumeProfile: {
+          poc: metrics?.volumeProfile?.poc,
+          vah: metrics?.volumeProfile?.vah,
+          val: metrics?.volumeProfile?.val,
+        },
+      },
+      backtestSummary: backtestSummary || null,
+    },
+    null,
+    2,
+  );
+}
+
+// ── Metric Card ───────────────────────────────────────────────────────────────
+function MetricRow({ label, value, sub, accent = "#5B8CFF", mono = false }) {
+  return (
+    <div
+      className="flex items-center justify-between px-4 py-3 rounded-xl"
+      style={{
+        background: "rgba(0,0,0,0.3)",
+        border: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <div>
+        <div
+          className="text-[11px] font-semibold uppercase tracking-widest mb-0.5"
+          style={{ color: "#4A5568" }}
+        >
+          {label}
+        </div>
+        {sub && (
+          <div className="text-[10px]" style={{ color: "#6B7280" }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      <div
+        className="text-[15px] font-black"
+        style={{ color: accent, fontFamily: mono ? "monospace" : "inherit" }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// ── Formula Box ───────────────────────────────────────────────────────────────
+function FormulaBox({ formula, color = "#5B8CFF" }) {
+  return (
+    <div
+      className="px-3 py-2 rounded-lg mt-2"
+      style={{
+        background: "rgba(0,0,0,0.4)",
+        border: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
+      <code className="text-[10px] font-mono" style={{ color }}>
+        {formula}
+      </code>
+    </div>
+  );
+}
+
+// ── Section Header ────────────────────────────────────────────────────────────
+function SectionHeader({ icon: Icon, title, color = "#5B8CFF" }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Icon size={14} style={{ color }} />
+      <span
+        className="text-[11px] font-bold uppercase tracking-widest"
+        style={{ color }}
+      >
+        {title}
+      </span>
+    </div>
+  );
+}
+
+// ── Copy-to-Clipboard Hook ────────────────────────────────────────────────────
+function useCopy() {
+  const [copied, setCopied] = useState(false);
+  const copy = (text) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  };
+  return { copied, copy };
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function AgentTerminal({
+  agentId,
+  agentName,
+  agentData,
+  onClose,
+}) {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showExport, setShowExport] = useState(false);
+  const [exportTab, setExportTab] = useState("json"); // 'json' | 'pine'
+  const panelRef = useRef(null);
+  const jsonCopy = useCopy();
+  const pineCopy = useCopy();
+
+  const fetchMetrics = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agents/${agentId}/quant-metrics`);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setMetrics(data);
+    } catch (err) {
+      console.error("[AgentTerminal] fetch error:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMetrics();
+    // Auto-refresh every 60s
+    const interval = setInterval(fetchMetrics, 60000);
+    return () => clearInterval(interval);
+  }, [agentId]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const m = metrics?.metrics || {};
+  const wf = metrics?.walkForward || {};
+  const strategy = metrics?.strategy || agentData?.parsed_strategy || {};
+  const backtestSummary = metrics?.backtestSummary;
+
+  // Overfit detection
+  const overfitWarning = wf.overfitWarning === true;
+  const wfSegments = wf.segments || [];
+
+  // Generate export content — use agentData as fallback so export always works
+  const exportStrategy = strategy || agentData?.parsed_strategy || {};
+  const jsonBlueprint = generateJSON(
+    agentId,
+    agentName,
+    exportStrategy,
+    m,
+    backtestSummary,
+  );
+  const pineScript = generatePineScript(agentName, exportStrategy, m);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div
+        ref={panelRef}
+        className="fixed top-0 right-0 h-full z-50 flex flex-col overflow-hidden"
+        style={{
+          width: "min(640px, 100vw)",
+          background: "rgba(8,11,16,0.97)",
+          borderLeft: "1px solid rgba(255,255,255,0.09)",
+          backdropFilter: "blur(24px)",
+          boxShadow: "-20px 0 80px rgba(0,0,0,0.8)",
+          animation: "terminalSlideIn 0.28s cubic-bezier(0.25,1,0.5,1) both",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{
+                background: "rgba(91,140,255,0.15)",
+                border: "1px solid rgba(91,140,255,0.25)",
+              }}
+            >
+              <Activity size={16} style={{ color: "#5B8CFF" }} />
+            </div>
+            <div>
+              <div className="text-[13px] font-black text-white leading-tight">
+                {agentName}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span
+                  className="text-[9px] font-bold font-mono tracking-widest px-2 py-0.5 rounded"
+                  style={{
+                    background: "rgba(52,211,153,0.12)",
+                    color: "#34D399",
+                    border: "1px solid rgba(52,211,153,0.2)",
+                  }}
+                >
+                  TERMINAL
+                </span>
+                {metrics?.asset && (
+                  <span className="text-[10px] text-[#8B9EB5] font-mono">
+                    {metrics.asset} · {metrics.dataSource} ·{" "}
+                    {metrics.dataPoints}pts
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {metrics?.livePrice && (
+              <span className="text-[12px] font-black font-mono text-white">
+                $
+                {Number(metrics.livePrice).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                })}
+              </span>
+            )}
+            <button
+              onClick={fetchMetrics}
+              disabled={loading}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
+              style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+            >
+              <RefreshCw
+                size={13}
+                style={{
+                  color: "#8B9EB5",
+                  animation: loading
+                    ? "terminalSpin 1s linear infinite"
+                    : "none",
+                }}
+              />
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
+              style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+            >
+              <X size={14} style={{ color: "#8B9EB5" }} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body — scrollable */}
+        <div
+          className="flex-1 overflow-y-auto"
+          style={{ scrollbarWidth: "thin" }}
+        >
+          {loading && !metrics && (
+            <div className="flex flex-col items-center justify-center h-64 gap-4">
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  border: "2px solid rgba(91,140,255,0.2)",
+                  borderTopColor: "#5B8CFF",
+                  borderRadius: "50%",
+                  animation: "terminalSpin 0.8s linear infinite",
+                }}
+              />
+              <p className="text-[12px]" style={{ color: "#4A5568" }}>
+                Fetching live quant metrics…
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div
+              className="mx-5 mt-5 p-4 rounded-xl flex items-start gap-3"
+              style={{
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.2)",
+              }}
+            >
+              <AlertTriangle
+                size={16}
+                style={{ color: "#EF4444", flexShrink: 0 }}
+              />
+              <div>
+                <p
+                  className="text-[12px] font-bold"
+                  style={{ color: "#EF4444" }}
+                >
+                  Failed to load metrics
+                </p>
+                <p className="text-[11px] mt-1" style={{ color: "#F87171" }}>
+                  {error}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {metrics && (
+            <div className="px-5 py-5 space-y-5">
+              {/* ── OVERFIT WARNING BANNER ───────────────────────────────── */}
+              {overfitWarning && (
+                <div
+                  className="p-4 rounded-xl flex items-start gap-3"
+                  style={{
+                    background: "rgba(239,68,68,0.1)",
+                    border: "2px solid rgba(239,68,68,0.4)",
+                    animation: "terminalPulse 2s ease-in-out infinite",
+                  }}
+                >
+                  <AlertTriangle
+                    size={18}
+                    style={{ color: "#EF4444", flexShrink: 0 }}
+                  />
+                  <div>
+                    <p
+                      className="text-[12px] font-black uppercase tracking-wider"
+                      style={{ color: "#EF4444" }}
+                    >
+                      OVERFIT WARNING
+                    </p>
+                    <p
+                      className="text-[11px] mt-1"
+                      style={{ color: "#FCA5A5" }}
+                    >
+                      Curve-fitting detected. Validation divergence critical.
+                      In-sample vs out-of-sample performance spread exceeds 15%.
+                      Strategy may not generalise to live markets.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── BACKTEST SUMMARY ─────────────────────────────────────── */}
+              {backtestSummary && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <SectionHeader
+                    icon={BarChart3}
+                    title="Backtest Summary"
+                    color="#5B8CFF"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <MetricRow
+                      label="Total Return"
+                      value={`${backtestSummary.totalReturn >= 0 ? "+" : ""}${Number(backtestSummary.totalReturn).toFixed(2)}%`}
+                      accent={
+                        backtestSummary.totalReturn >= 0 ? "#34D399" : "#F87171"
+                      }
+                    />
+                    <MetricRow
+                      label="Sharpe Ratio"
+                      value={Number(backtestSummary.sharpeRatio).toFixed(3)}
+                      accent="#8A7CFF"
+                    />
+                    <MetricRow
+                      label="Win Rate"
+                      value={`${Number(backtestSummary.winRate).toFixed(1)}%`}
+                      accent="#5B8CFF"
+                    />
+                    <MetricRow
+                      label="Max Drawdown"
+                      value={`-${Number(backtestSummary.maxDrawdown).toFixed(2)}%`}
+                      accent="#F59E0B"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ── HURST EXPONENT ───────────────────────────────────────── */}
+              {m.hurst && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <SectionHeader
+                    icon={Brain}
+                    title="Hurst Exponent"
+                    color="#34D399"
+                  />
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div
+                        className="text-4xl font-black font-mono"
+                        style={{
+                          color:
+                            typeof m.hurst.H === "number"
+                              ? m.hurst.H > 0.55
+                                ? "#34D399"
+                                : m.hurst.H < 0.45
+                                  ? "#F59E0B"
+                                  : "#94A3B8"
+                              : "#94A3B8",
+                        }}
+                      >
+                        H ={" "}
+                        {typeof m.hurst.H === "number"
+                          ? m.hurst.H.toFixed(3)
+                          : m.hurst.H}
+                      </div>
+                      <div
+                        className="text-[11px] font-semibold mt-1"
+                        style={{
+                          color:
+                            m.hurst.category === "TRENDING" ||
+                            m.hurst.category === "PERSISTENT"
+                              ? "#34D399"
+                              : m.hurst.category === "MEAN_REVERTING" ||
+                                  m.hurst.category === "ANTI-PERSISTENT"
+                                ? "#F59E0B"
+                                : "#94A3B8",
+                        }}
+                      >
+                        {m.hurst.signal || m.hurst.label || m.hurst.category}
+                      </div>
+                    </div>
+                    <div
+                      className="text-right text-[10px]"
+                      style={{ color: "#4A5568" }}
+                    >
+                      <div>R/S Analysis</div>
+                      <div>Mandelbrot & Wallis 1969</div>
+                    </div>
+                  </div>
+                  <p
+                    className="text-[11px] leading-relaxed mb-2"
+                    style={{ color: "#94A3B8" }}
+                  >
+                    {m.hurst.interpretation}
+                  </p>
+                  <FormulaBox
+                    formula="log(E[R/S]_n) = H · log(n) + C   [OLS regression on R/S pairs]"
+                    color="#34D399"
+                  />
+                </div>
+              )}
+
+              {/* ── MONTE CARLO ──────────────────────────────────────────── */}
+              {m.monteCarlo && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <SectionHeader
+                    icon={Sigma}
+                    title={`Monte Carlo GBM (${m.monteCarlo.paths || 500} paths)`}
+                    color="#8A7CFF"
+                  />
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <MetricRow
+                      label="Annualised μ (drift)"
+                      value={`${Number(m.monteCarlo.mu).toFixed(2)}%`}
+                      accent="#8A7CFF"
+                      mono
+                    />
+                    <MetricRow
+                      label="Annualised σ (vol)"
+                      value={`${Number(m.monteCarlo.sigma).toFixed(2)}%`}
+                      accent="#C084FC"
+                      mono
+                    />
+                    <MetricRow
+                      label="Median Outcome (p50)"
+                      value={`$${Number(m.monteCarlo.percentiles?.p50 || 0).toFixed(0)}`}
+                      accent="#5B8CFF"
+                    />
+                    <MetricRow
+                      label="VaR (p5 / worst 5%)"
+                      value={`$${Number(m.monteCarlo.percentiles?.p5 || 0).toFixed(0)}`}
+                      accent="#F87171"
+                    />
+                    <MetricRow
+                      label="Best Case (p95)"
+                      value={`$${Number(m.monteCarlo.percentiles?.p95 || 0).toFixed(0)}`}
+                      accent="#34D399"
+                    />
+                    <MetricRow
+                      label="Probability of Ruin"
+                      value={`${Number(m.monteCarlo.probabilityOfRuin || 0).toFixed(2)}%`}
+                      accent={
+                        m.monteCarlo.probabilityOfRuin > 20
+                          ? "#EF4444"
+                          : "#34D399"
+                      }
+                    />
+                  </div>
+                  <FormulaBox
+                    formula="S_t = S₀ · exp((μ − σ²/2)·t + σ·W_t)   W_t ~ N(0, √t)"
+                    color="#8A7CFF"
+                  />
+                </div>
+              )}
+
+              {/* ── FRACTIONAL DIFFERENTIATION ───────────────────────────── */}
+              {m.fracDiff && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <SectionHeader
+                    icon={Layers}
+                    title="Fractional Differentiation (d = 0.4)"
+                    color="#F59E0B"
+                  />
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {(m.fracDiff.weights || []).map(({ k, weight }) => (
+                      <div
+                        key={k}
+                        className="px-3 py-2 rounded-lg text-center"
+                        style={{
+                          background: "rgba(245,158,11,0.1)",
+                          border: "1px solid rgba(245,158,11,0.2)",
+                          minWidth: 72,
+                        }}
+                      >
+                        <div
+                          className="text-[9px] font-semibold uppercase"
+                          style={{ color: "#6B7280" }}
+                        >
+                          w<sub>{k}</sub>
+                        </div>
+                        <div
+                          className="text-[13px] font-black font-mono"
+                          style={{ color: "#F59E0B" }}
+                        >
+                          {weight > 0 ? "+" : ""}
+                          {weight.toFixed(4)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] mb-2" style={{ color: "#94A3B8" }}>
+                    {m.fracDiff.interpretation}
+                  </p>
+                  <FormulaBox
+                    formula="w_k = w_{k-1} · (d − k + 1) / k,  w_0 = 1"
+                    color="#F59E0B"
+                  />
+                </div>
+              )}
+
+              {/* ── VaR 95% + TREYNOR ────────────────────────────────────── */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {m.var95 && (
+                  <div
+                    className="rounded-xl p-4"
+                    style={{
+                      background: "rgba(255,255,255,0.025)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                    }}
+                  >
+                    <SectionHeader
+                      icon={Shield}
+                      title="Value at Risk 95%"
+                      color="#EF4444"
+                    />
+                    <MetricRow
+                      label="1-Day VaR ($)"
+                      value={`$${Number(m.var95.varDollar || 0).toFixed(2)}`}
+                      accent="#EF4444"
+                      mono
+                    />
+                    <MetricRow
+                      label="1-Day VaR (%)"
+                      value={`${Number(m.var95.varPct || 0).toFixed(3)}%`}
+                      accent="#F87171"
+                      mono
+                    />
+                    <MetricRow
+                      label="Daily μ"
+                      value={`${Number(m.var95.mu || 0).toFixed(3)}%`}
+                      accent="#94A3B8"
+                      mono
+                    />
+                    <MetricRow
+                      label="Daily σ"
+                      value={`${Number(m.var95.sigma || 0).toFixed(3)}%`}
+                      accent="#94A3B8"
+                      mono
+                    />
+                    <FormulaBox
+                      formula="VaR₉₅% = μ·Δt + 1.645·σ·√Δt"
+                      color="#EF4444"
+                    />
+                  </div>
+                )}
+
+                {m.treynor ? (
+                  <div
+                    className="rounded-xl p-4"
+                    style={{
+                      background: "rgba(255,255,255,0.025)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                    }}
+                  >
+                    <SectionHeader
+                      icon={TrendingUp}
+                      title={`Treynor Ratio vs ${m.treynor.benchmark || "BTC"}`}
+                      color="#5B8CFF"
+                    />
+                    <MetricRow
+                      label="Treynor Ratio"
+                      value={Number(m.treynor.treynor || 0).toFixed(4)}
+                      accent="#5B8CFF"
+                      mono
+                    />
+                    <MetricRow
+                      label="Beta (β)"
+                      value={Number(m.treynor.beta || 0).toFixed(4)}
+                      accent="#8A7CFF"
+                      mono
+                    />
+                    <MetricRow
+                      label="Alpha (α)"
+                      value={`${Number(m.treynor.alpha || 0).toFixed(3)}%`}
+                      accent={m.treynor.alpha > 0 ? "#34D399" : "#F87171"}
+                      mono
+                    />
+                    <p
+                      className="text-[10px] mt-2"
+                      style={{ color: "#6B7280" }}
+                    >
+                      {m.treynor.interpretation}
+                    </p>
+                    <FormulaBox
+                      formula="TR = (Rp − Rf) / βp   [Treynor 1965, annualised]"
+                      color="#5B8CFF"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-xl p-4 flex items-center justify-center"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <p
+                      className="text-[11px] text-center"
+                      style={{ color: "#4A5568" }}
+                    >
+                      Treynor Ratio unavailable
+                      <br />
+                      (asset = benchmark or insufficient data)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── VOLUME PROFILE ───────────────────────────────────────── */}
+              {m.volumeProfile && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <SectionHeader
+                    icon={BarChart3}
+                    title="Volume Profile — POC / VAH / VAL"
+                    color="#06B6D4"
+                  />
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      {
+                        label: "POC",
+                        sub: "Point of Control",
+                        value: m.volumeProfile.poc,
+                        accent: "#06B6D4",
+                      },
+                      {
+                        label: "VAH",
+                        sub: "Value Area High",
+                        value: m.volumeProfile.vah,
+                        accent: "#34D399",
+                      },
+                      {
+                        label: "VAL",
+                        sub: "Value Area Low",
+                        value: m.volumeProfile.val,
+                        accent: "#F59E0B",
+                      },
+                    ].map(({ label, sub, value, accent }) => (
+                      <div
+                        key={label}
+                        className="text-center p-3 rounded-xl"
+                        style={{
+                          background: `${accent}12`,
+                          border: `1px solid ${accent}25`,
+                        }}
+                      >
+                        <div
+                          className="text-[10px] font-bold uppercase tracking-widest mb-1"
+                          style={{ color: accent }}
+                        >
+                          {label}
+                        </div>
+                        <div className="text-[14px] font-black font-mono text-white">
+                          $
+                          {Number(value || 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                        <div
+                          className="text-[9px] mt-0.5"
+                          style={{ color: "#6B7280" }}
+                        >
+                          {sub}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className="mt-2 text-[10px]"
+                    style={{ color: "#4A5568" }}
+                  >
+                    70% of volume captured · POC share:{" "}
+                    {m.volumeProfile.pocVolumeShare}%
+                  </div>
+                </div>
+              )}
+
+              {/* ── WALK-FORWARD OVERFIT GRAPH ───────────────────────────── */}
+              {wfSegments.length > 0 && (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <SectionHeader
+                      icon={Layers}
+                      title="Walk-Forward IS vs OOS"
+                      color="#8A7CFF"
+                    />
+                    {overfitWarning && (
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded"
+                        style={{
+                          background: "rgba(239,68,68,0.15)",
+                          color: "#EF4444",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                        }}
+                      >
+                        DIVERGENCE &gt;15%
+                      </span>
+                    )}
+                  </div>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart
+                      data={wfSegments}
+                      margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="rgba(255,255,255,0.04)"
+                      />
+                      <XAxis
+                        dataKey="window"
+                        tick={{ fill: "#4A5568", fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        label={{
+                          value: "Window",
+                          position: "insideBottom",
+                          fill: "#4A5568",
+                          fontSize: 10,
+                        }}
+                      />
+                      <YAxis
+                        tick={{ fill: "#4A5568", fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `${v}%`}
+                        width={42}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#0A0E14",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: 8,
+                          fontSize: 11,
+                        }}
+                        labelStyle={{ color: "#94A3B8" }}
+                        formatter={(v, name) => [
+                          `${Number(v).toFixed(2)}%`,
+                          name,
+                        ]}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 10, color: "#94A3B8" }}
+                      />
+                      <ReferenceLine
+                        y={0}
+                        stroke="rgba(255,255,255,0.1)"
+                        strokeDasharray="3 3"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="isReturn"
+                        name="In-Sample"
+                        stroke="#5B8CFF"
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#5B8CFF" }}
+                        activeDot={{ r: 5 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="oosReturn"
+                        name="Out-of-Sample"
+                        stroke={overfitWarning ? "#EF4444" : "#34D399"}
+                        strokeWidth={2}
+                        dot={{
+                          r: 3,
+                          fill: overfitWarning ? "#EF4444" : "#34D399",
+                        }}
+                        strokeDasharray={overfitWarning ? "5 3" : "0"}
+                        activeDot={{ r: 5 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <p className="text-[10px] mt-2" style={{ color: "#4A5568" }}>
+                    IS = parameters fitted on historical data. OOS = performance
+                    on unseen future data. Divergence &gt;15% indicates
+                    curve-fitting.
+                  </p>
+                </div>
+              )}
+
+              {wfSegments.length === 0 && (
+                <div
+                  className="rounded-xl p-4 text-center"
+                  style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <Layers
+                    size={24}
+                    style={{ color: "#1E293B", margin: "0 auto 8px" }}
+                  />
+                  <p className="text-[11px]" style={{ color: "#4A5568" }}>
+                    Walk-forward data not available. Re-create agent with a
+                    1-year backtest period to enable overfit detection graph.
+                  </p>
+                </div>
+              )}
+
+              {/* Spacer at bottom */}
+              <div style={{ height: 32 }} />
+            </div>
+          )}
+        </div>
+
+        {/* Footer — Export Button */}
+        <div
+          className="flex-shrink-0 px-5 py-4"
+          style={{
+            borderTop: "1px solid rgba(255,255,255,0.07)",
+            background: "rgba(0,0,0,0.3)",
+          }}
+        >
+          <SovereignButton
+            purpose="export"
+            size="md"
+            onClick={() => setShowExport(true)}
+            disabled={loading && !agentData}
+            className="w-full"
+            style={{ justifyContent: "center" }}
+          >
+            EXPORT AGENT BLUEPRINT
+          </SovereignButton>
+        </div>
+      </div>
+
+      {/* ── EXPORT MODAL ──────────────────────────────────────────────────── */}
+      {showExport && (
+        <>
+          <div
+            className="fixed inset-0 z-60"
+            style={{
+              background: "rgba(0,0,0,0.75)",
+              backdropFilter: "blur(8px)",
+            }}
+            onClick={() => setShowExport(false)}
+          />
+          <div
+            className="fixed inset-0 z-60 flex items-center justify-center p-4"
+            onClick={() => setShowExport(false)}
+          >
+            <div
+              className="rounded-2xl w-full overflow-hidden"
+              style={{
+                maxWidth: 640,
+                background: "rgba(8,11,16,0.98)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                boxShadow: "0 40px 100px rgba(0,0,0,0.8)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div
+                className="flex items-center justify-between px-6 py-4"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+              >
+                <div className="flex items-center gap-3">
+                  <Download size={18} style={{ color: "#5B8CFF" }} />
+                  <div>
+                    <h3 className="text-[14px] font-black text-white">
+                      Export Agent Blueprint
+                    </h3>
+                    <p
+                      className="text-[11px] mt-0.5"
+                      style={{ color: "#8B9EB5" }}
+                    >
+                      JSON config + TradingView Pine Script skeleton
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowExport(false)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all"
+                >
+                  <X size={14} style={{ color: "#8B9EB5" }} />
+                </button>
+              </div>
+
+              {/* Tab Toggle */}
+              <div
+                className="flex gap-1 px-4 pt-4"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                {[
+                  { id: "json", label: "JSON Blueprint" },
+                  { id: "pine", label: "Pine Script v5" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setExportTab(tab.id)}
+                    className="px-4 py-2 rounded-t-lg text-[12px] font-bold transition-all"
+                    style={{
+                      background:
+                        exportTab === tab.id
+                          ? "rgba(91,140,255,0.15)"
+                          : "transparent",
+                      color: exportTab === tab.id ? "#5B8CFF" : "#8B9EB5",
+                      borderBottom:
+                        exportTab === tab.id
+                          ? "2px solid #5B8CFF"
+                          : "2px solid transparent",
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Code Area */}
+              <div className="px-4 py-4">
+                <div
+                  className="relative rounded-xl overflow-auto"
+                  style={{
+                    background: "rgba(0,0,0,0.6)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    maxHeight: 340,
+                  }}
+                >
+                  <pre
+                    className="text-[10px] font-mono p-4 leading-relaxed"
+                    style={{
+                      color: "#94A3B8",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {exportTab === "json" ? jsonBlueprint : pineScript}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Action Row */}
+              <div className="flex gap-3 px-4 pb-5">
+                <button
+                  onClick={() =>
+                    exportTab === "json"
+                      ? jsonCopy.copy(jsonBlueprint)
+                      : pineCopy.copy(pineScript)
+                  }
+                  className="flex items-center gap-2 flex-1 justify-center py-3 rounded-xl text-[13px] font-bold transition-all hover:scale-[1.02]"
+                  style={{
+                    background: "rgba(91,140,255,0.15)",
+                    border: "1px solid rgba(91,140,255,0.3)",
+                    color: "#5B8CFF",
+                  }}
+                >
+                  {(
+                    exportTab === "json"
+                      ? jsonCopy.copied
+                      : pineCopy.copied
+                  ) ? (
+                    <>
+                      <CheckCircle size={14} /> Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} /> Copy to Clipboard
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    const content =
+                      exportTab === "json" ? jsonBlueprint : pineScript;
+                    const ext = exportTab === "json" ? "json" : "pine";
+                    const filename = `${agentName.replace(/\s+/g, "_")}_blueprint.${ext}`;
+                    const blob = new Blob([content], { type: "text/plain" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex items-center gap-2 flex-1 justify-center py-3 rounded-xl text-[13px] font-bold transition-all hover:scale-[1.02]"
+                  style={{
+                    background: "#FFFFFF",
+                    color: "#000000",
+                  }}
+                >
+                  <Download size={14} />
+                  Download File
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <style jsx global>{`
+        @keyframes terminalSlideIn {
+          from { transform: translateX(100%); opacity: 0; }
+          to   { transform: translateX(0);    opacity: 1; }
+        }
+        @keyframes terminalSpin {
+          from { transform: rotate(0deg);   }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes terminalPulse {
+          0%, 100% { opacity: 1;   }
+          50%       { opacity: 0.7; }
+        }
+      `}</style>
+    </>
+  );
+}
+
+
+
