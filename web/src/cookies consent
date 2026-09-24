@@ -1,0 +1,74 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { Cookie, X } from "lucide-react";
+
+export default function CookieConsent() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const consent = localStorage.getItem("quvanti_cookie_consent");
+    if (!consent) {
+      setTimeout(() => setShow(true), 2000); // Show after 2 seconds
+    }
+  }, []);
+
+  const handleAccept = () => {
+    localStorage.setItem("quvanti_cookie_consent", "accepted");
+    setShow(false);
+  };
+
+  const handleDecline = () => {
+    localStorage.setItem("quvanti_cookie_consent", "declined");
+    setShow(false);
+  };
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-[9998] p-3 sm:p-4 animate-slideUp">
+      <div className="max-w-6xl mx-auto bg-[#1a1f2e] border-2 border-blue-600 rounded-xl shadow-2xl p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
+          <Cookie className="w-6 h-6 sm:w-8 sm:h-8 text-blue-400 flex-shrink-0 mt-1" />
+          <div className="flex-1 w-full sm:w-auto">
+            <h3 className="text-white font-bold text-base sm:text-lg mb-2">
+              🍪 Cookie Notice
+            </h3>
+            <p className="text-gray-300 text-xs sm:text-sm leading-relaxed mb-3 sm:mb-4">
+              We use cookies to enhance your experience, analyze site usage, and
+              remember your preferences. By using Quvanti, you consent to our
+              use of cookies in accordance with our{" "}
+              <a href="/privacy" className="text-blue-400 hover:underline">
+                Privacy Policy
+              </a>
+              . We do NOT sell your data to third parties.
+            </p>
+            <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
+              <button
+                onClick={handleAccept}
+                className="w-full sm:w-auto px-4 sm:px-6 py-3 sm:py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold transition-colors text-sm sm:text-base"
+              >
+                Accept All Cookies
+              </button>
+              <button
+                onClick={handleDecline}
+                className="w-full sm:w-auto px-4 sm:px-6 py-3 sm:py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors text-sm sm:text-base"
+              >
+                Decline Optional
+              </button>
+              <a
+                href="/privacy"
+                className="w-full sm:w-auto px-4 sm:px-6 py-3 sm:py-2 text-gray-400 hover:text-white transition-colors flex items-center justify-center text-sm sm:text-base"
+              >
+                Learn More
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
