@@ -1,0 +1,1979 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  ArrowLeft,
+  Sparkles,
+  AlertCircle,
+  CheckCircle,
+  Loader,
+  Trash2,
+  Award,
+  Zap,
+  BarChart3,
+  Rocket,
+  Brain,
+  Layers,
+  Sigma,
+  ExternalLink,
+  Calendar,
+  Terminal,
+  Activity,
+  Clock,
+  TrendingUp,
+  TrendingDown,
+  Pause,
+  Play,
+  Users,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+import SubscriptionBanner from "@/components/SubscriptionBanner";
+import PaywallModal from "@/components/PaywallModal";
+import AppNav from "@/components/AppNav";
+import InternalLayout from "@/components/InternalLayout";
+import SovereignButton from "@/components/SovereignButton";
+import { useOmniStore } from "@/store/useOmniStore";
+
+// ── Design tokens (consistent with Broker/Dashboard dark theme) ───────────────
+const D = {
+  bg: "#050505",
+  surface: "rgba(255,255,255,0.04)",
+  surface2: "rgba(255,255,255,0.07)",
+  border: "rgba(255,255,255,0.07)",
+  borderBright: "rgba(255,255,255,0.13)",
+  text: "#ffffff",
+  muted: "rgba(255,255,255,0.45)",
+  faint: "rgba(255,255,255,0.22)",
+  accent: "#5B8CFF",
+  green: "#10b981",
+  red: "#ef4444",
+  crimson: "#FF0000", // Sovereign Crimson — gating limit colour
+  amber: "#f59e0b",
+};
+
+// ── Status badge for roster items ─────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const map = {
+    active: { color: D.green, label: "ACTIVE", glow: true },
+    paused: { color: D.amber, label: "PAUSED", glow: false },
+    stopped: { color: "rgba(255,255,255,0.2)", label: "STOPPED", glow: false },
+  };
+  const s = map[status] || map.stopped;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "2px 8px",
+        borderRadius: "4px",
+        background: `${s.color}18`,
+        border: `1px solid ${s.color}35`,
+        fontSize: "9px",
+        fontWeight: 800,
+        color: s.color,
+        letterSpacing: "0.1em",
+        fontFamily: "monospace",
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          width: "4px",
+          height: "4px",
+          borderRadius: "50%",
+          background: s.color,
+          boxShadow: s.glow ? `0 0 6px ${s.color}` : "none",
+          display: "inline-block",
+        }}
+      />
+      {s.label}
+    </span>
+  );
+}
+
+// ── Individual roster card ────────────────────────────────────────────────────
+function RosterCard({ agent, onDelete, deleteLoading }) {
+  const isDeleting = deleteLoading === agent.id;
+  const pnlRaw = parseFloat(
+    agent.parsed_strategy?.expectedReturn ||
+      agent.parsed_strategy?.performance?.totalReturn ||
+      0,
+  );
+  const hasPnL = !isNaN(pnlRaw) && pnlRaw !== 0;
+  const pnlColor = pnlRaw >= 0 ? D.green : D.red;
+
+  return (
+    <div
+      style={{
+        padding: "14px 16px",
+        background: "rgba(255,255,255,0.03)",
+        border: `1px solid ${D.border}`,
+        borderRadius: "12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+        transition: "border-color 0.2s",
+      }}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.borderColor = "rgba(255,255,255,0.13)")
+      }
+      onMouseLeave={(e) => (e.currentTarget.style.borderColor = D.border)}
+    >
+      {/* Top row: name + status */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: "8px",
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "13px",
+              fontWeight: 700,
+              color: D.text,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {agent.name}
+          </p>
+          {agent.description && (
+            <p
+              style={{
+                margin: "2px 0 0",
+                fontSize: "11px",
+                color: D.muted,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {agent.description}
+            </p>
+          )}
+        </div>
+        <StatusBadge status={agent.status} />
+      </div>
+
+      {/* Asset + PnL strip */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        {agent.parsed_strategy?.asset && (
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: D.accent,
+              background: "rgba(91,140,255,0.1)",
+              border: "1px solid rgba(91,140,255,0.2)",
+              padding: "2px 8px",
+              borderRadius: "4px",
+              fontFamily: "monospace",
+            }}
+          >
+            {agent.parsed_strategy.asset}
+          </span>
+        )}
+        {hasPnL && (
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: pnlColor,
+              fontFamily: "monospace",
+              display: "flex",
+              alignItems: "center",
+              gap: "3px",
+            }}
+          >
+            {pnlRaw >= 0 ? (
+              <TrendingUp size={10} />
+            ) : (
+              <TrendingDown size={10} />
+            )}
+            {pnlRaw >= 0 ? "+" : ""}
+            {pnlRaw.toFixed(2)}%
+          </span>
+        )}
+        <span
+          style={{
+            fontSize: "9px",
+            color: D.faint,
+            fontFamily: "monospace",
+            marginLeft: "auto",
+          }}
+        >
+          {agent.created_at
+            ? new Date(agent.created_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })
+            : ""}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <SovereignButton
+          as="a"
+          href={`/agents/${agent.id}`}
+          purpose="terminal"
+          variant="outline"
+          size="xs"
+          iconPosition="left"
+          style={{ flex: 1, justifyContent: "center" }}
+        >
+          OPEN TERMINAL
+        </SovereignButton>
+
+        <button
+          onClick={() => onDelete(agent.id)}
+          disabled={isDeleting}
+          title="Delete agent"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "30px",
+            height: "30px",
+            borderRadius: "8px",
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            color: isDeleting ? D.faint : D.red,
+            cursor: isDeleting ? "not-allowed" : "pointer",
+            transition: "all 0.2s",
+            flexShrink: 0,
+            opacity: isDeleting ? 0.5 : 1,
+          }}
+          onMouseEnter={(e) => {
+            if (!isDeleting) {
+              e.currentTarget.style.background = "rgba(239,68,68,0.18)";
+              e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)";
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(239,68,68,0.08)";
+            e.currentTarget.style.borderColor = "rgba(239,68,68,0.2)";
+          }}
+        >
+          {isDeleting ? (
+            <Loader
+              size={12}
+              style={{ animation: "rosterSpin 0.8s linear infinite" }}
+            />
+          ) : (
+            <Trash2 size={13} />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Allocation progress bar ───────────────────────────────────────────────────
+function AllocationBar({ current, max }) {
+  const pct = max > 0 ? Math.min((current / max) * 100, 100) : 0;
+  const atLimit = current >= max;
+  const barColor = atLimit ? D.crimson : pct >= 75 ? D.amber : D.accent;
+
+  return (
+    <div>
+      {/* Labels */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "8px",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            color: atLimit ? D.crimson : D.muted,
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            transition: "color 0.3s",
+          }}
+        >
+          <Users size={12} />
+          Agent Slots
+          {atLimit && (
+            <span
+              style={{
+                fontSize: "9px",
+                fontWeight: 800,
+                color: D.crimson,
+                background: "rgba(255,0,0,0.1)",
+                border: "1px solid rgba(255,0,0,0.3)",
+                padding: "1px 6px",
+                borderRadius: "3px",
+                letterSpacing: "0.08em",
+                animation: "limitPulse 1.5s ease-in-out infinite",
+              }}
+            >
+              LIMIT REACHED
+            </span>
+          )}
+        </span>
+        <span
+          style={{
+            fontSize: "12px",
+            fontWeight: 800,
+            color: atLimit ? D.crimson : D.text,
+            fontFamily: "monospace",
+            transition: "color 0.3s",
+          }}
+        >
+          {current} / {max}
+        </span>
+      </div>
+
+      {/* Track */}
+      <div
+        style={{
+          width: "100%",
+          height: "5px",
+          borderRadius: "3px",
+          background: "rgba(255,255,255,0.07)",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {/* Fill */}
+        <div
+          style={{
+            height: "100%",
+            width: `${pct}%`,
+            borderRadius: "3px",
+            background: atLimit
+              ? D.crimson
+              : `linear-gradient(90deg, ${D.accent}, ${pct >= 75 ? D.amber : D.accent})`,
+            transition:
+              "width 0.5s cubic-bezier(0.25, 1, 0.5, 1), background 0.3s",
+            boxShadow: atLimit
+              ? `0 0 10px ${D.crimson}80`
+              : `0 0 8px ${D.accent}50`,
+          }}
+        />
+      </div>
+
+      {/* Sub-label */}
+      <p
+        style={{
+          margin: "6px 0 0",
+          fontSize: "10px",
+          color: atLimit ? "rgba(255,0,0,0.6)" : D.faint,
+          lineHeight: "1.5",
+          transition: "color 0.3s",
+        }}
+      >
+        {atLimit
+          ? "Delete an agent below to free a slot, or upgrade to Pro."
+          : current === 0
+            ? "No agents yet. Create your first below."
+            : `${max - current} slot${max - current !== 1 ? "s" : ""} remaining.`}
+      </p>
+    </div>
+  );
+}
+
+// ── Active Roster Panel ───────────────────────────────────────────────────────
+function ActiveRoster({
+  agents,
+  agentCount,
+  maxAgents,
+  onDelete,
+  deleteLoading,
+  isSyncing,
+}) {
+  return (
+    <aside
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "0",
+        height: "100%",
+      }}
+    >
+      {/* Glass-morphic header */}
+      <div
+        style={{
+          padding: "20px",
+          background:
+            "linear-gradient(135deg, rgba(91,140,255,0.07) 0%, rgba(255,255,255,0.03) 100%)",
+          border: `1px solid ${D.border}`,
+          borderRadius: "16px 16px 0 0",
+          borderBottom: "none",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+        }}
+      >
+        {/* Title row */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                background: "rgba(91,140,255,0.15)",
+                border: "1px solid rgba(91,140,255,0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Activity size={15} style={{ color: D.accent }} />
+            </div>
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  fontWeight: 800,
+                  color: D.text,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                Active Roster
+              </h2>
+              <p style={{ margin: 0, fontSize: "10px", color: D.muted }}>
+                Real-time agent feed
+              </p>
+            </div>
+          </div>
+          {isSyncing && (
+            <Loader
+              size={13}
+              style={{
+                color: D.accent,
+                animation: "rosterSpin 0.8s linear infinite",
+              }}
+            />
+          )}
+        </div>
+
+        {/* Allocation Bar */}
+        <AllocationBar current={agentCount} max={maxAgents} />
+      </div>
+
+      {/* Scrollable agent list */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.015) 100%)",
+          border: `1px solid ${D.border}`,
+          borderTop: "none",
+          borderRadius: "0 0 16px 16px",
+          minHeight: "320px",
+          maxHeight: "calc(100vh - 320px)",
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(255,255,255,0.1) transparent",
+        }}
+      >
+        {agents.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "200px",
+              gap: "12px",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "12px",
+                background: "rgba(255,255,255,0.04)",
+                border: `1px dashed ${D.border}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Terminal size={20} style={{ color: D.faint }} />
+            </div>
+            <div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: D.muted,
+                }}
+              >
+                No agents yet
+              </p>
+              <p
+                style={{ margin: "4px 0 0", fontSize: "11px", color: D.faint }}
+              >
+                Create your first agent on the left.
+              </p>
+            </div>
+          </div>
+        ) : (
+          agents.map((agent) => (
+            <RosterCard
+              key={agent.id}
+              agent={agent}
+              onDelete={onDelete}
+              deleteLoading={deleteLoading}
+            />
+          ))
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+export default function CreateAgent() {
+  // ── OmniStore ──────────────────────────────────────────────────────────────
+  const agents = useOmniStore((s) => s.agents);
+  const agentCount = useOmniStore((s) => s.agentCount);
+  const agentFetchStatus = useOmniStore((s) => s.agentFetchStatus);
+  const syncAgents = useOmniStore((s) => s.syncAgents);
+  const removeAgentOptimistic = useOmniStore((s) => s.removeAgentOptimistic);
+  const userTier = useOmniStore((s) => s.userTier);
+  const syncSubscription = useOmniStore((s) => s.syncSubscription);
+
+  // ── Local form state ───────────────────────────────────────────────────────
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [subscription, setSubscription] = useState(null);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [agentLimitReached, setAgentLimitReached] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(null);
+  const [strategyImported, setStrategyImported] = useState(false);
+  const [backtestDays, setBacktestDays] = useState(90);
+
+  const [createdAgent, setCreatedAgent] = useState(null);
+  const [backtestResults, setBacktestResults] = useState(null);
+  const [creationStep, setCreationStep] = useState(null);
+  const [usedFallback, setUsedFallback] = useState(false);
+  const [backendWarnings, setBackendWarnings] = useState([]);
+
+  const [analyzing, setAnalyzing] = useState(false);
+  const [strategyAnalysis, setStrategyAnalysis] = useState(null);
+  const [applyingImprovements, setApplyingImprovements] = useState(false);
+
+  // ── Derived from OmniStore ─────────────────────────────────────────────────
+  const maxAgents = userTier === "pro" ? 10 : 1;
+  const canCreateMore = agentCount < maxAgents;
+  const atLimit = agentCount >= maxAgents;
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    // Sync both subscription and agents from OmniStore on mount
+    syncAgents();
+    syncSubscription();
+    loadSubscriptionLocal();
+
+    try {
+      const pending = localStorage.getItem("pendingStrategy");
+      if (pending) {
+        const { prompt: savedPrompt, timestamp } = JSON.parse(pending);
+        if (Date.now() - timestamp < 5 * 60 * 1000 && savedPrompt) {
+          setPrompt(savedPrompt);
+          setStrategyImported(true);
+          localStorage.removeItem("pendingStrategy");
+          setTimeout(() => setStrategyImported(false), 5000);
+        } else {
+          localStorage.removeItem("pendingStrategy");
+        }
+      }
+    } catch (e) {
+      console.error("Error loading pending strategy:", e);
+    }
+  }, []);
+
+  // Keep subscription banner up to date
+  const loadSubscriptionLocal = async () => {
+    try {
+      const res = await fetch("/api/subscription/status");
+      if (res.ok) setSubscription(await res.json());
+    } catch (e) {
+      console.error("loadSubscriptionLocal:", e);
+    }
+  };
+
+  // ── Delete handler — optimistic via OmniStore ──────────────────────────────
+  const handleDeleteAgent = useCallback(
+    async (agentId) => {
+      if (!confirm("Delete this agent? This action cannot be undone.")) return;
+      setDeleteLoading(agentId);
+
+      // Optimistic: remove from store instantly → agentCount drops immediately
+      removeAgentOptimistic(agentId);
+      setAgentLimitReached(false);
+      setError(null);
+
+      try {
+        const res = await fetch("/api/agents/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId }),
+        });
+        if (!res.ok) throw new Error("Failed to delete agent");
+        // Reconcile with server truth
+        await syncAgents();
+      } catch (e) {
+        console.error("[CreateAgent.handleDeleteAgent]", e.message);
+        setError("Failed to delete agent. Please try again.");
+        // Rollback: re-sync to restore correct state
+        await syncAgents();
+      } finally {
+        setDeleteLoading(null);
+      }
+    },
+    [removeAgentOptimistic, syncAgents],
+  );
+
+  // ── Create handler ─────────────────────────────────────────────────────────
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    setAgentLimitReached(false);
+    setCreationStep("parsing");
+    setUsedFallback(false);
+    setBackendWarnings([]);
+
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+
+    const timeoutId = setTimeout(() => {
+      setError("Request timed out after 2 minutes. Please try again.");
+      setLoading(false);
+      setCreationStep(null);
+    }, 120000);
+
+    const stepTimer1 = setTimeout(() => setCreationStep("backtesting"), 8000);
+    const stepTimer2 = setTimeout(() => setCreationStep("validating"), 25000);
+
+    try {
+      const response = await fetch("/api/agents/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          name,
+          naturalLanguagePrompt: prompt,
+          backtestDays,
+        }),
+      });
+
+      clearTimeout(timeoutId);
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          "Server returned an invalid response. Please try again.",
+        );
+      }
+
+      if (response.status === 403 && data.error === "usage_limit_reached") {
+        setShowPaywall(true);
+        setLoading(false);
+        setCreationStep(null);
+        return;
+      }
+      if (response.status === 403 && data.error === "agent_limit_reached") {
+        setAgentLimitReached(true);
+        setError(data.message);
+        setLoading(false);
+        setCreationStep(null);
+        await syncAgents();
+        return;
+      }
+      if (data.error === "validation_error") {
+        const fieldMessages = Object.entries(data.fields || {})
+          .filter(([, v]) => v)
+          .map(([, v]) => v)
+          .join(". ");
+        throw new Error(fieldMessages || data.message);
+      }
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            data.details ||
+            data.error ||
+            "Server error " + response.status,
+        );
+      }
+      if (!data.agent?.id) {
+        throw new Error(
+          "Server response is missing agent information. Please try again.",
+        );
+      }
+
+      setCreatedAgent(data.agent);
+      setBacktestResults(data.backtest);
+      setUsedFallback(data.usedFallbackStrategy || false);
+      setBackendWarnings(data.warnings || []);
+      setCreationStep("complete");
+      setLoading(false);
+
+      // Sync roster immediately after creation → agentCount updates across all pages
+      await syncAgents();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      setError(err.message);
+      setLoading(false);
+      setCreationStep(null);
+    }
+  };
+
+  // ── Strategy analysis ──────────────────────────────────────────────────────
+  const analyzeStrategy = async () => {
+    if (!prompt || prompt.trim().length < 20) {
+      alert("Please enter a strategy first");
+      return;
+    }
+    setAnalyzing(true);
+    setStrategyAnalysis(null);
+    try {
+      const res = await fetch("/api/strategy/improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ strategyText: prompt }),
+      });
+      if (!res.ok) throw new Error("Analysis failed");
+      const d = await res.json();
+      setStrategyAnalysis(d.analysis);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to analyze strategy");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const applyImprovements = async () => {
+    setApplyingImprovements(true);
+    try {
+      const res = await fetch("/api/strategy/apply-improvements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalStrategy: prompt,
+          improvements: strategyAnalysis.improvements,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to apply improvements");
+      const d = await res.json();
+      setPrompt(d.improvedStrategy);
+      setStrategyAnalysis(null);
+      alert(`${d.improvementsApplied} improvements applied!`);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to apply improvements");
+    } finally {
+      setApplyingImprovements(false);
+    }
+  };
+
+  // ── Results View (unchanged) ───────────────────────────────────────────────
+  if (createdAgent && backtestResults) {
+    const fmtCurrency = (v, compact = false) => {
+      const num = Number(v);
+      if (isNaN(num)) return "$—";
+      const abs = Math.abs(num);
+      const sign = num < 0 ? "-" : "";
+      if (compact) {
+        if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+        if (abs >= 10_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+        if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(2)}K`;
+      }
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+      }).format(num);
+    };
+    const fmtPct = (v, plus = false) => {
+      const n = Number(v);
+      if (isNaN(n)) return "—";
+      return (plus && n > 0 ? "+" : "") + n.toFixed(2) + "%";
+    };
+
+    const daysTested = backtestResults?.days_tested ?? 90;
+    const dataSource = backtestResults?.data_source ?? "CoinGecko";
+    const benchmarkPct = daysTested >= 365 ? 24 : daysTested >= 180 ? 12 : 6;
+    const totalReturn = backtestResults?.total_return ?? 0;
+    const beatMarket = totalReturn > benchmarkPct;
+    const initial = backtestResults?.initial_capital ?? 10000;
+    const finalCap = backtestResults?.final_capital ?? initial;
+    const profitDollar = finalCap - initial;
+    const winRate = backtestResults?.win_rate ?? 0;
+    const sharpe = backtestResults?.sharpe_ratio ?? 0;
+    const maxDD = backtestResults?.max_drawdown ?? 0;
+    const totalTrades = backtestResults?.total_trades ?? 0;
+
+    const validation = backtestResults?.validation || {};
+    const hurst = validation?.hurst || null;
+    const mc = validation?.monteCarlo || null;
+    const wfo = validation?.walkForward || null;
+    const overfit = validation?.overfitAnalysis || null;
+
+    const hurstCat = hurst?.category || "UNKNOWN";
+    const hurstLabel =
+      hurstCat === "TRENDING"
+        ? "Trend-Following Active"
+        : hurstCat === "MEAN_REVERTING"
+          ? "Mean-Reversion Active"
+          : "Random Walk Detected";
+    const hurstColor =
+      hurstCat === "TRENDING"
+        ? "#10B981"
+        : hurstCat === "MEAN_REVERTING"
+          ? "#F59E0B"
+          : "#6B7280";
+
+    const equityCurve = (backtestResults?.equity_curve || []).map((pt, i) => ({
+      i,
+      date: pt.timestamp
+        ? new Date(pt.timestamp).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          })
+        : `Day ${i}`,
+      value: parseFloat(Number(pt.equity ?? 10000).toFixed(2)),
+    }));
+
+    return (
+      <InternalLayout>
+        <AppNav />
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-purple-500/20 border-2 border-emerald-400/40 mb-6">
+              <CheckCircle className="text-emerald-400" size={22} />
+              <span className="text-base font-bold text-emerald-400">
+                Agent Created — {daysTested}-Day Quantitative Analysis Complete
+              </span>
+            </div>
+            <h1 className="text-4xl sm:text-5xl font-black text-white mb-3 leading-tight">
+              {beatMarket ? "Outperformed Benchmark" : "Strategy Backtested"}
+              <span className="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-400">
+                {profitDollar >= 0 ? "+" : ""}
+                {fmtCurrency(profitDollar)} on {fmtCurrency(initial)}
+              </span>
+            </h1>
+            <p className="text-gray-400 max-w-xl mx-auto">
+              {daysTested}-day backtest on real{" "}
+              {createdAgent?.parsed_strategy?.asset || "BTC"} data via{" "}
+              <span className="text-cyan-400 font-semibold">{dataSource}</span>.
+              Benchmark ref: {benchmarkPct}% ({daysTested}d).
+            </p>
+          </div>
+
+          {usedFallback && (
+            <div
+              className="mb-6 p-4 rounded-xl flex items-start gap-3"
+              style={{
+                background: "rgba(245,158,11,0.07)",
+                border: "1px solid rgba(245,158,11,0.2)",
+              }}
+            >
+              <AlertCircle
+                size={18}
+                style={{ color: "#F59E0B", flexShrink: 0, marginTop: 1 }}
+              />
+              <div>
+                <p
+                  className="text-sm font-bold mb-1"
+                  style={{ color: "#F59E0B" }}
+                >
+                  Default Strategy Applied
+                </p>
+                <p
+                  className="text-sm"
+                  style={{ color: "rgba(245,158,11,0.8)" }}
+                >
+                  The AI couldn&apos;t parse your exact description, so a
+                  default RSI + stop-loss template was used. The backtest below
+                  reflects this template. Open the agent to review and refine
+                  the rules.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {backendWarnings
+            .filter(() => !usedFallback)
+            .map((warning, i) => (
+              <div
+                key={i}
+                className="mb-4 p-4 rounded-xl flex items-start gap-3"
+                style={{
+                  background: "rgba(245,158,11,0.05)",
+                  border: "1px solid rgba(245,158,11,0.15)",
+                }}
+              >
+                <AlertCircle
+                  size={16}
+                  style={{ color: "#F59E0B", flexShrink: 0 }}
+                />
+                <p
+                  className="text-sm"
+                  style={{ color: "rgba(245,158,11,0.8)" }}
+                >
+                  {warning}
+                </p>
+              </div>
+            ))}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            {[
+              {
+                label: "Total Return",
+                value: fmtPct(totalReturn, true),
+                sub: `vs benchmark ${benchmarkPct}%`,
+                color: totalReturn >= 0 ? "#10B981" : "#EF4444",
+              },
+              {
+                label: "Win Rate",
+                value: fmtPct(winRate),
+                sub: `${Math.round((totalTrades * winRate) / 100)} wins`,
+                color: "#06B6D4",
+              },
+              {
+                label: "Sharpe Ratio",
+                value: Number(sharpe).toFixed(2),
+                sub:
+                  sharpe > 2 ? "Excellent" : sharpe > 1 ? "Good" : "Moderate",
+                color: "#7C3AED",
+              },
+              {
+                label: "Max Drawdown",
+                value: fmtPct(-maxDD),
+                sub: maxDD < 20 ? "Low risk" : "Moderate",
+                color: "#F59E0B",
+              },
+            ].map(({ label, value, sub, color }) => (
+              <div
+                key={label}
+                className="relative overflow-hidden rounded-2xl border p-5"
+                style={{ background: `${color}12`, borderColor: `${color}40` }}
+              >
+                <div
+                  className="absolute top-0 right-0 w-20 h-20 rounded-full blur-3xl opacity-20"
+                  style={{ background: color }}
+                />
+                <p
+                  className="text-xs font-bold uppercase tracking-widest mb-2"
+                  style={{ color }}
+                >
+                  {label}
+                </p>
+                <p className="text-3xl font-black text-white leading-none mb-1">
+                  {value}
+                </p>
+                <p className="text-xs text-gray-400">{sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {[
+              {
+                label: "Sortino Ratio",
+                value:
+                  backtestResults?.metrics?.sortinoRatio != null
+                    ? Number(backtestResults.metrics.sortinoRatio).toFixed(2)
+                    : "N/A",
+                sub: "Downside-only risk",
+                color: "#8B5CF6",
+              },
+              {
+                label: "Profit Factor",
+                value:
+                  backtestResults?.metrics?.profitFactor != null
+                    ? Number(backtestResults.metrics.profitFactor).toFixed(2)
+                    : "N/A",
+                sub: "Gross profit / gross loss",
+                color: "#10B981",
+              },
+              {
+                label: "Expectancy",
+                value:
+                  backtestResults?.metrics?.expectancy != null
+                    ? (Number(backtestResults.metrics.expectancy) >= 0
+                        ? "+"
+                        : "") +
+                      (
+                        Number(backtestResults.metrics.expectancy) * 100
+                      ).toFixed(2) +
+                      "%"
+                    : "N/A",
+                sub: "Avg return per dollar risked",
+                color: "#06B6D4",
+              },
+              {
+                label: "MDD Duration",
+                value:
+                  backtestResults?.metrics?.maxDrawdownDuration != null
+                    ? `${backtestResults.metrics.maxDrawdownDuration}d`
+                    : "N/A",
+                sub: "Bars spent underwater",
+                color: "#F59E0B",
+              },
+            ].map(({ label, value, sub, color }) => (
+              <div
+                key={label}
+                className="rounded-xl border p-4"
+                style={{ background: `${color}08`, borderColor: `${color}30` }}
+              >
+                <p
+                  className="text-[10px] font-bold uppercase tracking-widest mb-2"
+                  style={{ color }}
+                >
+                  {label}
+                </p>
+                <p className="text-xl font-black text-white leading-none mb-1">
+                  {value}
+                </p>
+                <p className="text-[10px] text-gray-500">{sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {equityCurve.length > 3 && (
+            <div className="rounded-2xl border border-cyan-500/25 bg-[#0D1117] p-5 mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 size={18} className="text-cyan-400" />
+                <p className="text-sm font-bold text-white">
+                  Portfolio Equity Curve
+                </p>
+                <span className="text-xs text-gray-500 ml-auto">
+                  Starting capital: $10,000
+                </span>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart
+                  data={equityCurve}
+                  margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop
+                        offset="5%"
+                        stopColor="#06B6D4"
+                        stopOpacity={0.35}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor="#06B6D4"
+                        stopOpacity={0.02}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.04)"
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "#6B7280", fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={Math.max(1, Math.floor(equityCurve.length / 6))}
+                  />
+                  <YAxis
+                    tick={{ fill: "#6B7280", fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) =>
+                      `$${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v}`
+                    }
+                    width={60}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#0A0E14",
+                      border: "1px solid rgba(6,182,212,0.3)",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                    labelStyle={{ color: "#9CA3AF" }}
+                    formatter={(v) => [
+                      `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                      "Portfolio",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#06B6D4"
+                    strokeWidth={2}
+                    fill="url(#eqGrad)"
+                    dot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+            <div
+              className="rounded-2xl border p-5"
+              style={{
+                background: `${hurstColor}10`,
+                borderColor: `${hurstColor}35`,
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Brain size={18} style={{ color: hurstColor }} />
+                <p className="text-sm font-bold text-white">Hurst Exponent</p>
+              </div>
+              {hurst ? (
+                <>
+                  <p
+                    className="text-4xl font-black mb-1"
+                    style={{ color: hurstColor }}
+                  >
+                    H ={" "}
+                    {typeof hurst.H === "number" ? hurst.H.toFixed(3) : hurst.H}
+                  </p>
+                  <p
+                    className="text-xs font-semibold mb-2"
+                    style={{ color: hurstColor }}
+                  >
+                    {hurstLabel}
+                  </p>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    {hurst.interpretation}
+                  </p>
+                  <div className="mt-3 px-2 py-1 rounded-md bg-white/5">
+                    <code className="text-[10px] font-mono text-cyan-300">
+                      log(R/S) = H·log(n) + C
+                    </code>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Requires 100+ price data points.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-purple-500/25 bg-purple-500/8 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Sigma size={18} className="text-purple-400" />
+                <p className="text-sm font-bold text-white">
+                  Monte Carlo (N=1,000)
+                </p>
+              </div>
+              {mc ? (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Value at Risk (5%)</span>
+                      <span className="font-bold text-red-400">
+                        $
+                        {mc.confidenceIntervals?.finalCapital?.lower?.toFixed(
+                          0,
+                        ) ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Median Outcome</span>
+                      <span className="font-bold text-cyan-400">
+                        $
+                        {mc.confidenceIntervals?.finalCapital?.median?.toFixed(
+                          0,
+                        ) ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Best Case (95%)</span>
+                      <span className="font-bold text-emerald-400">
+                        $
+                        {mc.confidenceIntervals?.finalCapital?.upper?.toFixed(
+                          0,
+                        ) ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs border-t border-white/10 pt-2 mt-2">
+                      <span className="text-gray-400">Probability of Ruin</span>
+                      <span
+                        className="font-bold"
+                        style={{
+                          color:
+                            mc.probabilityOfRuin > 20 ? "#EF4444" : "#10B981",
+                        }}
+                      >
+                        {mc.probabilityOfRuin?.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Expected Return</span>
+                      <span className="font-bold text-white">
+                        {mc.expectedReturn?.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 px-2 py-1 rounded-md bg-white/5">
+                    <code className="text-[10px] font-mono text-purple-300">
+                      E_t = E₀ · ∏(1 + r̃ᵢ)
+                    </code>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Requires 10+ closed trades to run bootstrap simulation.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Layers size={18} className="text-emerald-400" />
+                <p className="text-sm font-bold text-white">
+                  Walk-Forward Opt.
+                </p>
+              </div>
+              {wfo ? (
+                <>
+                  <div
+                    className="mb-3 px-3 py-2 rounded-lg border text-xs font-bold"
+                    style={{
+                      color: wfo.passedValidation ? "#10B981" : "#EF4444",
+                      borderColor: wfo.passedValidation ? "#10B981" : "#EF4444",
+                      background: wfo.passedValidation
+                        ? "#10B98115"
+                        : "#EF444415",
+                    }}
+                  >
+                    {wfo.passedValidation
+                      ? "✓ VALIDATION PASSED"
+                      : "✗ OVERFIT DETECTED"}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">IS Avg Return</span>
+                      <span className="font-bold text-blue-400">
+                        {wfo.averageInSampleReturn?.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">OOS Avg Return</span>
+                      <span className="font-bold text-emerald-400">
+                        {wfo.averageOutOfSampleReturn?.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Degradation</span>
+                      <span
+                        className="font-bold"
+                        style={{
+                          color:
+                            wfo.degradationPercent > 30 ? "#EF4444" : "#10B981",
+                        }}
+                      >
+                        {wfo.degradationPercent?.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Windows Passed</span>
+                      <span className="font-bold text-white">
+                        {wfo.segments?.filter((s) => s.passed).length ?? 0} /{" "}
+                        {wfo.segments?.length ?? 0}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 px-2 py-1 rounded-md bg-white/5">
+                    <code className="text-[10px] font-mono text-emerald-300">
+                      WFE = ARR(OOS) / ARR(IS)
+                    </code>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Requires 200+ candles. Try the 1-year backtest period.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {overfit?.overfitDetected && (
+            <div className="mb-6 p-4 rounded-xl border border-amber-500/40 bg-amber-500/10">
+              <div className="flex items-start gap-3">
+                <AlertCircle
+                  className="text-amber-400 flex-shrink-0 mt-0.5"
+                  size={18}
+                />
+                <div>
+                  <p className="text-sm font-bold text-amber-400 mb-1">
+                    Overfit Warning — Score: {overfit.overfitScore}/100
+                  </p>
+                  <p className="text-xs text-amber-200">
+                    {overfit.recommendation}
+                  </p>
+                  {overfit.warnings?.slice(0, 2).map((w, i) => (
+                    <p key={i} className="text-xs text-amber-300 mt-1">
+                      • {w.message}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {beatMarket && (
+            <div className="rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-2 border-amber-400/40 p-6 text-center mb-6">
+              <Award className="mx-auto text-amber-400 mb-3" size={40} />
+              <h3 className="text-xl font-black text-white mb-1">
+                Outperformed Benchmark!
+              </h3>
+              <p className="text-amber-300">
+                Beat benchmark by {(totalReturn - benchmarkPct).toFixed(1)}%
+                over {daysTested} days
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href={`/agents/${createdAgent.id}`}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-10 py-4 rounded-2xl bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-black text-lg shadow-xl shadow-cyan-500/40 transition-all hover:scale-105"
+            >
+              <Rocket size={22} />
+              View Full Agent
+            </a>
+            <a
+              href="/quant-engine"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-white/8 hover:bg-white/14 border border-white/15 text-white font-bold text-base transition-all"
+            >
+              <ExternalLink size={18} />
+              Deep Quant Analysis
+            </a>
+            <button
+              onClick={() => {
+                setCreatedAgent(null);
+                setBacktestResults(null);
+                setName("");
+                setPrompt("");
+              }}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold text-base transition-all"
+            >
+              <Sparkles size={18} />
+              Create Another
+            </button>
+          </div>
+        </div>
+      </InternalLayout>
+    );
+  }
+
+  // ── Creation Form + Active Roster ──────────────────────────────────────────
+  return (
+    <InternalLayout>
+      <AppNav />
+
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* Page header */}
+        <div className="flex items-center gap-4 mb-8">
+          <button
+            onClick={() => (window.location.href = "/dashboard")}
+            className="p-3 hover:bg-white/5 rounded-xl transition-colors text-gray-400 hover:text-white border border-white/10"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight">
+              Create AI Trading Agent
+            </h1>
+            <p className="text-gray-400 mt-1">
+              Describe your strategy in plain English — works for crypto and
+              stocks.
+            </p>
+          </div>
+        </div>
+
+        {/* ── Two-column layout ── */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr",
+            gap: "28px",
+          }}
+          className="lg:grid-cols-[1fr_380px]"
+        >
+          {/* ════ LEFT: Creation Form ════════════════════════════════════════ */}
+          <div>
+            {strategyImported && (
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-3 mb-6">
+                <CheckCircle
+                  className="text-emerald-400 flex-shrink-0 mt-0.5"
+                  size={20}
+                />
+                <div>
+                  <p className="text-sm font-medium text-emerald-400 mb-1">
+                    Strategy Imported!
+                  </p>
+                  <p className="text-sm text-emerald-300">
+                    Your strategy from Strategy Lab has been loaded.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Limit-reached banner (redundant with AllocationBar but context-local) */}
+            {agentLimitReached && agents.length > 0 && (
+              <div className="p-4 sm:p-6 rounded-xl bg-red-500/10 border border-red-500/20 mb-6">
+                <div className="flex items-start gap-2 sm:gap-3">
+                  <AlertCircle
+                    className="text-red-400 flex-shrink-0 mt-0.5"
+                    size={18}
+                  />
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-semibold text-red-400 mb-1">
+                      Slot Limit Reached
+                    </h3>
+                    <p className="text-xs sm:text-sm text-red-300">
+                      Delete an agent from the roster (right panel) to free a
+                      slot, or upgrade to Pro.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {subscription && (
+              <SubscriptionBanner
+                tier={subscription.tier}
+                usage={subscription.usage}
+              />
+            )}
+
+            {/* ── Disabled overlay when at limit ── */}
+            <div style={{ position: "relative" }}>
+              {atLimit && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 10,
+                    borderRadius: "16px",
+                    background: "rgba(0,0,0,0.55)",
+                    backdropFilter: "blur(2px)",
+                    WebkitBackdropFilter: "blur(2px)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "12px",
+                    border: `1px solid rgba(255,0,0,0.2)`,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "8px 20px",
+                      borderRadius: "10px",
+                      background: "rgba(255,0,0,0.12)",
+                      border: "1px solid rgba(255,0,0,0.35)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <AlertCircle size={18} style={{ color: D.crimson }} />
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: D.crimson,
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Slot limit reached — delete an agent to unlock this form
+                    </p>
+                  </div>
+                  <a
+                    href="/upgrade"
+                    style={{
+                      fontSize: "11px",
+                      color: D.faint,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Or upgrade to Pro for 10 slots →
+                  </a>
+                </div>
+              )}
+
+              <div
+                className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden"
+                style={{
+                  opacity: atLimit ? 0.45 : 1,
+                  pointerEvents: atLimit ? "none" : "auto",
+                  transition: "opacity 0.3s",
+                }}
+              >
+                <form onSubmit={handleSubmit} className="p-8 space-y-8">
+                  {/* Agent Name */}
+                  <div>
+                    <label className="block text-sm font-semibold text-white mb-3">
+                      Agent Name
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g., BTC Momentum Trader or AAPL Mean Reversion"
+                      required
+                      disabled={!canCreateMore}
+                      className="w-full px-4 py-3.5 rounded-xl bg-white/5 border border-white/10 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder-gray-500 transition-all outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+
+                  {/* Backtest Period */}
+                  <div>
+                    <label className="block text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                      <Calendar size={16} className="text-cyan-400" />
+                      Backtest Period
+                    </label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { d: 90, label: "90 Days", sub: "~3 months" },
+                        { d: 180, label: "180 Days", sub: "~6 months" },
+                        { d: 365, label: "1 Year", sub: "Most reliable" },
+                      ].map(({ d, label, sub }) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setBacktestDays(d)}
+                          className={`px-4 py-3 rounded-xl border text-sm font-bold transition-all ${backtestDays === d ? "border-cyan-500 bg-cyan-500/15 text-cyan-300" : "border-white/10 bg-white/5 text-gray-400 hover:border-white/20"}`}
+                        >
+                          <span className="block">{label}</span>
+                          <span
+                            className={`text-xs font-normal ${backtestDays === d ? "text-cyan-400" : "text-gray-500"}`}
+                          >
+                            {sub}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Longer periods give more statistically significant
+                      walk-forward OOS windows.
+                    </p>
+                  </div>
+
+                  {/* Strategy textarea + Analyze button */}
+                  <div>
+                    <label className="block text-sm font-semibold text-white mb-3 flex items-center justify-between">
+                      <span>Trading Strategy in Plain English</span>
+                      <button
+                        type="button"
+                        onClick={analyzeStrategy}
+                        disabled={
+                          analyzing || !prompt || prompt.trim().length < 20
+                        }
+                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-600 disabled:to-gray-600 text-white text-sm font-bold transition-all flex items-center gap-2"
+                      >
+                        {analyzing ? (
+                          <>
+                            <Loader className="animate-spin" size={16} />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={16} />
+                            Analyze & Improve
+                          </>
+                        )}
+                      </button>
+                    </label>
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder={
+                        "Example:\n• Buy Bitcoin when 50-day MA crosses above 200-day MA. Sell when RSI > 70. Use 2% stop loss.\n• Buy AAPL when RSI drops below 35 and price is above 50-day EMA. Sell at 5% profit or 3% stop loss."
+                      }
+                      rows={8}
+                      required
+                      disabled={!canCreateMore}
+                      className="w-full px-4 py-3.5 rounded-xl bg-white/5 border border-white/10 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 text-white placeholder-gray-500 transition-all outline-none resize-none font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <p className="mt-3 text-xs text-gray-500 flex items-start gap-2">
+                      <Sparkles
+                        size={14}
+                        className="flex-shrink-0 mt-0.5 text-cyan-400"
+                      />
+                      Be specific about entry/exit conditions, indicators, and
+                      risk management.
+                    </p>
+                  </div>
+
+                  {/* Strategy Analysis Panel */}
+                  {strategyAnalysis && (
+                    <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-2 border-purple-500/30">
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`text-5xl font-black ${strategyAnalysis.grade === "A" ? "text-emerald-400" : strategyAnalysis.grade === "B" ? "text-cyan-400" : strategyAnalysis.grade === "C" ? "text-amber-400" : "text-red-400"}`}
+                          >
+                            {strategyAnalysis.grade}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-black text-white">
+                              Strategy Score
+                            </h3>
+                            <p className="text-sm text-gray-300">
+                              {strategyAnalysis.summary}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-4xl font-black text-white mb-1">
+                            {strategyAnalysis.score}/100
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            Overall Rating
+                          </p>
+                        </div>
+                      </div>
+                      {strategyAnalysis.strengths?.length > 0 && (
+                        <div className="mb-4">
+                          <h4 className="text-sm font-bold text-emerald-400 mb-2">
+                            Strengths
+                          </h4>
+                          <div className="space-y-1">
+                            {strategyAnalysis.strengths.map((s, i) => (
+                              <p key={i} className="text-sm text-emerald-300">
+                                {s}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {strategyAnalysis.weaknesses?.length > 0 && (
+                        <div className="mb-4">
+                          <h4 className="text-sm font-bold text-red-400 mb-2">
+                            Critical Issues
+                          </h4>
+                          <div className="space-y-2">
+                            {strategyAnalysis.weaknesses.map((w, i) => (
+                              <div
+                                key={i}
+                                className="p-3 rounded-lg bg-red-900/20 border border-red-500/20"
+                              >
+                                <p className="text-sm font-semibold text-red-400 mb-1">
+                                  {w.issue}
+                                </p>
+                                <p className="text-xs text-red-300">
+                                  {w.description}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {strategyAnalysis.improvements?.length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="text-sm font-bold text-cyan-400 mb-2">
+                            Recommended Improvements
+                          </h4>
+                          <div className="space-y-2">
+                            {strategyAnalysis.improvements.map((imp, i) => (
+                              <div
+                                key={i}
+                                className="p-3 rounded-lg bg-cyan-900/20 border border-cyan-500/20"
+                              >
+                                <p className="text-sm font-semibold text-cyan-400 mb-1">
+                                  {imp.suggestion}
+                                </p>
+                                <p className="text-xs text-cyan-300">
+                                  Impact: {imp.impact}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {strategyAnalysis.improvements?.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={applyImprovements}
+                          disabled={applyingImprovements}
+                          className="w-full px-6 py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 disabled:from-gray-600 disabled:to-gray-600 text-white font-black text-lg transition-all flex items-center justify-center gap-3"
+                        >
+                          {applyingImprovements ? (
+                            <>
+                              <Loader className="animate-spin" size={20} />
+                              Applying...
+                            </>
+                          ) : (
+                            <>
+                              <Zap size={20} />
+                              Apply All Improvements
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {error && !agentLimitReached && (
+                    <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3">
+                      <AlertCircle
+                        className="text-red-400 flex-shrink-0 mt-0.5"
+                        size={20}
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-red-400 mb-1">
+                          Failed to create agent
+                        </p>
+                        <p className="text-sm text-red-300">{error}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step progress */}
+                  {loading && creationStep && (
+                    <div className="p-5 rounded-xl bg-white/[0.03] border border-white/8">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-white">
+                          Creating your agent…
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Takes 30–90 seconds
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[
+                          { key: "parsing", label: "Parsing" },
+                          { key: "backtesting", label: "Backtesting" },
+                          { key: "validating", label: "Validating" },
+                        ].map(({ key, label }, idx) => {
+                          const steps = [
+                            "parsing",
+                            "backtesting",
+                            "validating",
+                          ];
+                          const stepIdx = steps.indexOf(creationStep);
+                          const thisIdx = steps.indexOf(key);
+                          const isDone = thisIdx < stepIdx;
+                          const isActive = thisIdx === stepIdx;
+                          const stepColor = isDone
+                            ? "#34D399"
+                            : isActive
+                              ? "#5B8CFF"
+                              : "#374151";
+                          return (
+                            <div
+                              key={key}
+                              style={{
+                                flex: 1,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <div style={{ flex: 1 }}>
+                                <div
+                                  style={{
+                                    height: 3,
+                                    borderRadius: 2,
+                                    background: stepColor,
+                                    opacity: isActive ? 1 : isDone ? 1 : 0.25,
+                                    transition: "all 0.4s ease",
+                                  }}
+                                />
+                                <p
+                                  style={{
+                                    fontSize: 10,
+                                    color: isActive
+                                      ? "#EEF2FF"
+                                      : isDone
+                                        ? "#34D399"
+                                        : "#4A5568",
+                                    marginTop: 4,
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  {isDone ? "✓ " : ""}
+                                  {label}
+                                </p>
+                              </div>
+                              {idx < 2 && (
+                                <div style={{ width: 6, flexShrink: 0 }} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={
+                      loading ||
+                      !canCreateMore ||
+                      (subscription?.usage?.remaining ?? 1) === 0
+                    }
+                    className="group relative w-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600 hover:from-cyan-400 hover:via-blue-400 hover:to-purple-500 disabled:from-white/5 disabled:via-white/5 disabled:to-white/5 disabled:cursor-not-allowed text-white disabled:text-gray-500 px-8 py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-3 shadow-2xl shadow-cyan-500/30 hover:shadow-cyan-400/40 hover:scale-[1.02] active:scale-[0.98] overflow-hidden border border-transparent disabled:border-white/10"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
+                    {loading ? (
+                      <>
+                        <Loader className="animate-spin" size={24} />
+                        <span>
+                          {creationStep === "parsing" && "Parsing Strategy…"}
+                          {creationStep === "backtesting" &&
+                            `Backtesting ${backtestDays} Days…`}
+                          {creationStep === "validating" &&
+                            "Running Monte Carlo + Walk-Forward…"}
+                          {!creationStep && "Creating Agent…"}
+                        </span>
+                      </>
+                    ) : !canCreateMore ? (
+                      <>
+                        <AlertCircle size={24} />
+                        <span>Slot Limit Reached</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={24} />
+                        <span className="relative z-10">
+                          Create AI Trading Agent ({backtestDays}-Day Backtest)
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Pro tips */}
+            <div className="mt-6 p-6 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-cyan-500/20">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <Sparkles className="text-cyan-400" size={16} />
+                Pro Tips for Better AI Agents
+              </h3>
+              <ul className="space-y-2 text-sm text-gray-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-400 flex-shrink-0">•</span>
+                  <span>
+                    Specify exact entry and exit conditions (e.g., "RSI below
+                    30" not just "oversold")
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-400 flex-shrink-0">•</span>
+                  <span>
+                    Include risk management rules: stop loss %, position sizing,
+                    max drawdown limit
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-400 flex-shrink-0">•</span>
+                  <span>
+                    Stocks: AAPL, TSLA, NVDA, SPY, QQQ. Crypto: BTC, ETH, SOL.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-cyan-400 flex-shrink-0">•</span>
+                  <span>
+                    Use 1-year backtest for walk-forward validation with more
+                    statistically meaningful OOS windows.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* ════ RIGHT: Active Roster ════════════════════════════════════════ */}
+          <ActiveRoster
+            agents={agents}
+            agentCount={agentCount}
+            maxAgents={maxAgents}
+            onDelete={handleDeleteAgent}
+            deleteLoading={deleteLoading}
+            isSyncing={agentFetchStatus === "loading"}
+          />
+        </div>
+      </div>
+
+      {showPaywall && (
+        <PaywallModal
+          onClose={() => setShowPaywall(false)}
+          userTier={subscription?.tier || "free"}
+        />
+      )}
+
+      <style jsx global>{`
+        @keyframes rosterSpin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes limitPulse {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.55; }
+        }
+        .lg\\:grid-cols-\\[1fr_380px\\] {
+          grid-template-columns: 1fr 380px;
+        }
+        @media (max-width: 1023px) {
+          .lg\\:grid-cols-\\[1fr_380px\\] {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </InternalLayout>
+  );
+}
+
+
+
