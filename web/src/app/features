@@ -1,0 +1,1088 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import DisclaimerPopup from "@/components/DisclaimerPopup";
+import CookieConsent from "@/components/CookieConsent";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import OfflineDetector from "@/components/OfflineDetector";
+import IntegrityTicker from "@/components/IntegrityTicker";
+import GlobalLoader from "@/components/GlobalLoader";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5,
+      cacheTime: 1000 * 60 * 30,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <head>
+        {/* PWA Manifest and Icons */}
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#06B6D4" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta
+          name="apple-mobile-web-app-status-bar-style"
+          content="black-translucent"
+        />
+        <meta name="apple-mobile-web-app-title" content="Quvanti" />
+
+        {/* Apple Touch Icons */}
+        <link
+          rel="apple-touch-icon"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/180x/?v=2"
+        />
+        <link
+          rel="apple-touch-icon"
+          sizes="152x152"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/152x/?v=2"
+        />
+        <link
+          rel="apple-touch-icon"
+          sizes="180x180"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/180x/?v=2"
+        />
+
+        {/* Favicon — multi-size PNG with cache-busting */}
+        <link
+          rel="icon"
+          type="image/png"
+          sizes="32x32"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/png/-/resize/32x/?v=2"
+        />
+        <link
+          rel="icon"
+          type="image/png"
+          sizes="16x16"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/png/-/resize/16x/?v=2"
+        />
+        {/* ICO fallback for legacy browsers */}
+        <link
+          rel="shortcut icon"
+          href="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/png/-/resize/32x/?v=2"
+        />
+
+        {/* Performance Optimization - Preconnect */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link rel="preconnect" href="https://api.fontshare.com" />
+        <link rel="preconnect" href="https://cdn.paddle.com" />
+        <link rel="dns-prefetch" href="https://cdn.paddle.com" />
+        <link rel="preconnect" href="https://api.coingecko.com" />
+        <link rel="dns-prefetch" href="https://api.coingecko.com" />
+
+        {/* ── FONTS: Satoshi (PP Montreal equivalent) ── */}
+        <link
+          href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,400&display=swap"
+          rel="stylesheet"
+        />
+
+        {/* SEO — Institutional Quant Telemetry */}
+        <title>
+          Quvanti Labs | AI Quant Terminal — Stochastic Modeling, Bayesian
+          Backtesting & Hurst Exponent
+        </title>
+        <meta
+          name="title"
+          content="Quvanti Labs | AI Quant Terminal — Stochastic Modeling, Bayesian Backtesting & Hurst Exponent"
+        />
+        <meta
+          name="description"
+          content="Quvanti Labs is an elite, institutional-grade Autonomous Quant Telemetry platform providing real-time mathematical risk evaluation, overfit protection modeling, and strategic blueprint architectures."
+        />
+        <meta
+          name="keywords"
+          content="stochastic modeling, Bayesian backtesting, walk-forward analysis, Monte Carlo simulation, Hurst exponent, fractional differentiation, AI quant terminal, algorithmic trading, stochastic regime detection, order flow imbalance, genetic algorithm strategy optimization, Sharpe ratio optimization, AI trading bot, crypto trading bot, quantitative finance, autonomous trading agents, institutional grade trading, paper trading simulator, live broker integration Alpaca IBKR, quantitative signal generation"
+        />
+        <meta name="author" content="Quvanti Labs" />
+        <meta
+          name="robots"
+          content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+        />
+        <meta name="googlebot" content="index, follow" />
+        <link rel="canonical" href="https://quvantilabs.com" />
+
+        {/* Viewport for PWA */}
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover"
+        />
+
+        {/* Open Graph */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://quvantilabs.com" />
+        <meta property="og:site_name" content="Quvanti Labs" />
+        <meta
+          property="og:title"
+          content="Quvanti Labs | AI Quant Terminal — Stochastic Modeling & Bayesian Backtesting"
+        />
+        <meta
+          property="og:description"
+          content="Stochastic regime detection, Hurst Exponent analysis, Monte Carlo path simulation, walk-forward backtesting, and live broker execution — all AI-powered, institutional-grade, deployable in 60 seconds."
+        />
+        <meta
+          property="og:image"
+          content="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/1200x630/"
+        />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:locale" content="en_US" />
+
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:site" content="@quvantilabs" />
+        <meta name="twitter:creator" content="@quvantilabs" />
+        <meta
+          name="twitter:title"
+          content="Quvanti Labs | Stochastic AI Quant Terminal"
+        />
+        <meta
+          name="twitter:description"
+          content="Bayesian backtesting, Monte Carlo simulation (1,000 paths), Hurst Exponent calculation, walk-forward analysis, stochastic regime detection — hedge-fund grade quant tools, AI-powered."
+        />
+        <meta
+          name="twitter:image"
+          content="https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/1200x630/"
+        />
+
+        {/* Structured Data - JSON-LD */}
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "Quvanti Labs",
+            applicationCategory: "FinanceApplication",
+            offers: {
+              "@type": "Offer",
+              price: "0",
+              priceCurrency: "USD",
+              availability: "https://schema.org/InStock",
+            },
+            aggregateRating: {
+              "@type": "AggregateRating",
+              ratingValue: "4.9",
+              ratingCount: "312",
+            },
+            operatingSystem: "Web, iOS, Android",
+            description:
+              "The Sovereign AI Quant Terminal. Hedge-fund grade stochastic simulations, Hurst Exponents, Bayesian backtesting, and Monte Carlo path simulation. Built for serious algorithmic traders.",
+            url: "https://quvantilabs.com",
+            screenshot:
+              "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/",
+            featureList: [
+              "Bayesian Hyperparameter Optimization",
+              "Hurst Exponent Calculation",
+              "Monte Carlo Path Simulation (1,000 paths)",
+              "Walk-Forward Analysis",
+              "Fractional Differentiation",
+              "Stochastic Regime Detection",
+              "AES-256 API Key Encryption",
+              "Live Broker Integration (Alpaca / IBKR)",
+              "Paper Trading Simulator",
+              "Immutable Execution Audit Logs",
+            ],
+          })}
+        </script>
+
+        {/* Service Worker Registration - PWA */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                    .then(function(registration) {
+                      console.log('[PWA] Service Worker registered:', registration.scope);
+                      
+                      // Check for updates every hour
+                      setInterval(function() {
+                        registration.update();
+                      }, 3600000);
+                    })
+                    .catch(function(error) {
+                      console.log('[PWA] Service Worker registration failed:', error);
+                    });
+                });
+
+                // Handle service worker updates
+                navigator.serviceWorker.addEventListener('controllerchange', function() {
+                  console.log('[PWA] New version available - reloading');
+                  window.location.reload();
+                });
+              }
+            `,
+          }}
+        />
+
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+          /* ── QUVANTI DESIGN SYSTEM ───────────────────────────────── */
+          :root {
+            --bg-void:        #080B10;
+            --bg-deep:        #0D1117;
+            --bg-surface:     rgba(255,255,255,0.03);
+            --bg-surface-2:   rgba(255,255,255,0.055);
+            --bg-surface-3:   rgba(255,255,255,0.08);
+            --border:         rgba(255,255,255,0.07);
+            --border-bright:  rgba(255,255,255,0.13);
+            --text-primary:   #EEF2FF;
+            --text-secondary: #8B9EB5;
+            --text-muted:     #4A5568;
+            --accent:         #5B8CFF;
+            --accent-glow:    rgba(91,140,255,0.15);
+            --glow-white:     rgba(255,255,255,0.06);
+            --shadow-float:   0 8px 40px rgba(0,0,0,0.55), 0 2px 12px rgba(0,0,0,0.35);
+            --shadow-glow:    0 0 40px rgba(91,140,255,0.12);
+            --blur-glass:     blur(20px) saturate(180%);
+            --radius-card:    16px;
+            --radius-btn:     12px;
+            --transition:     all 0.2s cubic-bezier(0.4,0,0.2,1);
+            /* ── PP MONTREAL / SATOSHI TYPOGRAPHY ENGINE ── */
+            --font-montreal:  'Satoshi', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+            --font-body:      'Satoshi', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+            --font-heading:   'Satoshi', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+            --font-mono:      'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+          }
+
+          * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+            box-sizing: border-box;
+          }
+
+          html {
+            scroll-behavior: smooth;
+          }
+
+          body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg-void);
+            color: var(--text-primary);
+            font-family: var(--font-montreal);
+            font-weight: 400;
+            font-size: 16px;
+            line-height: 1.6;
+          }
+
+          /* ── EURO-CHIC TYPOGRAPHIC SCALE ─────────────────────────── */
+          h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-montreal);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 1.08;
+            margin: 0;
+          }
+
+          h1 { letter-spacing: -0.05em; }
+          h2 { letter-spacing: -0.04em; }
+          h3 { letter-spacing: -0.03em; }
+
+          p, li, span, a, label, input, textarea, select, button {
+            font-family: var(--font-montreal);
+          }
+
+          p {
+            font-weight: 400;
+            line-height: 1.65;
+            letter-spacing: -0.01em;
+          }
+
+          ::selection {
+            background: rgba(91,140,255,0.35);
+            color: #fff;
+          }
+
+          /* ── GLASS MORPHISM CARDS ────────────────────────────────── */
+          .glass {
+            background: var(--bg-surface);
+            -webkit-backdrop-filter: var(--blur-glass);
+            backdrop-filter: var(--blur-glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-float);
+          }
+
+          .glass-2 {
+            background: var(--bg-surface-2);
+            -webkit-backdrop-filter: var(--blur-glass);
+            backdrop-filter: var(--blur-glass);
+            border: 1px solid var(--border-bright);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-float);
+          }
+
+          .glass:hover, .glass-hover:hover {
+            background: var(--bg-surface-2);
+            border-color: var(--border-bright);
+            box-shadow: var(--shadow-float), var(--shadow-glow);
+            transform: translateY(-1px);
+          }
+
+          /* ── BUTTON SYSTEM ───────────────────────────────────────── */
+          .btn-primary {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: #fff;
+            color: #080B10 !important;
+            font-family: var(--font-montreal);
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            border-radius: var(--radius-btn);
+            border: none;
+            cursor: pointer;
+            overflow: hidden;
+            transition: var(--transition);
+            box-shadow: 0 4px 24px rgba(255,255,255,0.15), 0 2px 8px rgba(0,0,0,0.3);
+            text-decoration: none;
+          }
+
+          .btn-primary span,
+          .btn-primary * {
+            color: #080B10 !important;
+            font-family: var(--font-montreal);
+          }
+
+          .btn-primary::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.5) 50%, transparent 100%);
+            animation: btnShine 3s ease-in-out infinite;
+          }
+
+          .btn-primary:hover {
+            transform: scale(1.03);
+            box-shadow: 0 6px 36px rgba(255,255,255,0.3), 0 2px 12px rgba(0,0,0,0.4);
+          }
+
+          .btn-secondary {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            font-family: var(--font-montreal);
+            font-weight: 500;
+            letter-spacing: -0.02em;
+            border-radius: var(--radius-btn);
+            border: 1px solid var(--border-bright);
+            cursor: pointer;
+            overflow: hidden;
+            transition: var(--transition);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+            text-decoration: none;
+          }
+
+          .btn-secondary:hover {
+            background: var(--bg-surface-2);
+            border-color: rgba(255,255,255,0.22);
+            transform: scale(1.02);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+          }
+
+          /* ── ANIMATIONS ─────────────────────────────────────────── */
+          @keyframes btnShine {
+            0%   { left: -100%; }
+            50%  { left: 100%; }
+            100% { left: 100%; }
+          }
+
+          @keyframes breathe {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%       { opacity: 0.92; transform: scale(0.995); }
+          }
+
+          @keyframes floatUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
+          }
+
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+
+          @keyframes shimmerText {
+            0%   { background-position: -400% center; }
+            100% { background-position: 400% center; }
+          }
+
+          @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(91,140,255,0); }
+            50%       { box-shadow: 0 0 20px 4px rgba(91,140,255,0.18); }
+          }
+
+          @keyframes orb {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33%       { transform: translate(30px, -20px) scale(1.04); }
+            66%       { transform: translate(-20px, 15px) scale(0.97); }
+          }
+
+          @keyframes scanLine {
+            0%   { background-position: 0% 0%; }
+            100% { background-position: 0% 100%; }
+          }
+
+          /* ── UTILITY CLASSES ─────────────────────────────────────── */
+          .animate-float { animation: floatUp 0.5s cubic-bezier(0.4,0,0.2,1) both; }
+          .animate-fade  { animation: fadeIn 0.4s ease both; }
+          .animate-breathe { animation: breathe 4s ease-in-out infinite; }
+          .animate-orb { animation: orb 12s ease-in-out infinite; }
+          .animate-pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+
+          .shimmer-heading {
+            background: linear-gradient(
+              110deg,
+              #C8D6EF 0%, #EEF2FF 20%, #ffffff 35%,
+              #EEF2FF 50%, #C8D6EF 70%, #EEF2FF 85%, #ffffff 100%
+            );
+            background-size: 300% auto;
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmerText 5s linear infinite;
+          }
+
+          /* ── FLOATING DEPTH LAYERS ───────────────────────────────── */
+          .float-card {
+            transition: var(--transition);
+            will-change: transform;
+          }
+
+          .float-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-float), var(--shadow-glow);
+          }
+
+          /* ── SCROLLBAR ───────────────────────────────────────────── */
+          ::-webkit-scrollbar { width: 5px; height: 5px; }
+          ::-webkit-scrollbar-track { background: var(--bg-void); }
+          ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+          ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+          /* ── PWA Standalone ──────────────────────────────────────── */
+          @media (display-mode: standalone) {
+            body {
+              user-select: none;
+              -webkit-user-select: none;
+              -webkit-touch-callout: none;
+            }
+          }
+
+          /* ══════════════════════════════════════════════════════════
+             OBSIDIAN CANVAS — ANIMATED SMOKE ORB DESIGN SYSTEM
+             ══════════════════════════════════════════════════════════ */
+
+          .internal-page-wrapper {
+            background-color: #000000 !important;
+            min-height: 100vh;
+            width: 100%;
+            color: #FFFFFF;
+            overflow-x: hidden;
+            position: relative;
+            isolation: isolate;
+            font-family: var(--font-montreal);
+          }
+
+          /* ── SMOKE ORB KEYFRAMES ─────────────────────────────────── */
+          @keyframes smokeOrbPrimary {
+            0%   { transform: scale(1.00) translate(  0px,   0px); opacity: 0.88; }
+            18%  { transform: scale(1.04) translate( 12px, -18px); opacity: 1.00; }
+            40%  { transform: scale(1.07) translate( 22px,  -8px); opacity: 0.94; }
+            62%  { transform: scale(1.03) translate( 16px,  14px); opacity: 0.91; }
+            80%  { transform: scale(0.97) translate( -6px,  10px); opacity: 0.87; }
+            100% { transform: scale(1.00) translate(  0px,   0px); opacity: 0.88; }
+          }
+
+          @keyframes smokeOrbSecondary {
+            0%   { transform: scale(1.00) translate(  0px,   0px); opacity: 0.72; }
+            28%  { transform: scale(1.08) translate( 16px, -12px); opacity: 0.88; }
+            55%  { transform: scale(0.93) translate( -8px,  18px); opacity: 0.68; }
+            78%  { transform: scale(1.04) translate( 10px,  -6px); opacity: 0.80; }
+            100% { transform: scale(1.00) translate(  0px,   0px); opacity: 0.72; }
+          }
+
+          .qv-smoke-primary {
+            position: fixed;
+            bottom: -22%;
+            left: -14%;
+            width: 75vw;
+            height: 80vh;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            will-change: transform, opacity;
+            animation: smokeOrbPrimary 14s ease-in-out infinite;
+            background: radial-gradient(
+              ellipse at center,
+              rgba(218, 228, 238, 0.60)  0%,
+              rgba(195, 210, 225, 0.32) 20%,
+              rgba(160, 178, 195, 0.14) 42%,
+              rgba(100, 118, 135, 0.05) 65%,
+              transparent               85%
+            );
+          }
+
+          .qv-smoke-secondary {
+            position: fixed;
+            bottom: 4%;
+            left: -6%;
+            width: 48vw;
+            height: 50vh;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            will-change: transform, opacity;
+            animation: smokeOrbSecondary 18s ease-in-out infinite;
+            animation-delay: -6s;
+            background: radial-gradient(
+              ellipse at center,
+              rgba(205, 218, 232, 0.20)  0%,
+              rgba(165, 182, 200, 0.08) 38%,
+              transparent               72%
+            );
+          }
+
+          /* ── TYPOGRAPHY TOKENS (PP Montreal / Satoshi) ───────────── */
+          .internal-page-wrapper h1,
+          .internal-page-wrapper h2,
+          .internal-page-wrapper h3,
+          .internal-page-wrapper h4 {
+            color: #F8FAFC;
+            font-family: var(--font-montreal);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 1.08;
+          }
+
+          .internal-page-wrapper h1 { letter-spacing: -0.05em; }
+          .internal-page-wrapper h2 { letter-spacing: -0.04em; }
+          .internal-page-wrapper h3 { letter-spacing: -0.03em; }
+
+          .internal-page-wrapper p {
+            color: #C8D6E8;
+            font-weight: 400;
+            letter-spacing: -0.01em;
+            line-height: 1.65;
+            font-family: var(--font-montreal);
+          }
+
+          .internal-page-wrapper li {
+            color: #C8D6E8;
+            font-weight: 400;
+            font-family: var(--font-montreal);
+            letter-spacing: -0.01em;
+          }
+
+          .internal-page-wrapper span:not(.btn-primary span):not(.btn-primary *) {
+            font-family: var(--font-montreal);
+          }
+
+          .internal-page-wrapper a {
+            font-family: var(--font-montreal);
+          }
+
+          /* ── Force all .btn-primary content to stay black on white ── */
+          .btn-primary,
+          .btn-primary span,
+          .btn-primary * {
+            color: #080B10 !important;
+            font-family: var(--font-montreal);
+          }
+
+          .internal-page-wrapper .text-muted-obsidian {
+            color: #94A3B8;
+            font-weight: 400;
+            opacity: 0.85;
+          }
+
+          /* ── BREATHING HEADER FLOAT ──────────────────────────────── */
+          @keyframes dynamicHeaderFlow {
+            0%   { transform: translateY(0px);  opacity: 0.92; }
+            50%  { transform: translateY(-3px); opacity: 1;    }
+            100% { transform: translateY(0px);  opacity: 0.92; }
+          }
+
+          .dynamic-flow-header {
+            animation: dynamicHeaderFlow 7s ease-in-out infinite;
+            will-change: transform, opacity;
+          }
+
+          .internal-page-wrapper h1:first-of-type {
+            animation: dynamicHeaderFlow 7s ease-in-out infinite;
+            will-change: transform, opacity;
+          }
+
+          .internal-page-wrapper h1.no-breathe {
+            animation: none;
+          }
+
+          /* ── FROSTED MILK GLASS BUTTON SYSTEM ───────────────────── */
+          .glass-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: -0.02em;
+            color: #FFFFFF;
+            font-family: var(--font-montreal);
+            background: rgba(255, 255, 255, 0.12);
+            -webkit-backdrop-filter: blur(20px) saturate(160%);
+            backdrop-filter: blur(20px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow:
+              0 4px 30px rgba(0, 0, 0, 0.4),
+              inset 0 1px 1px rgba(255, 255, 255, 0.1),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            text-decoration: none;
+          }
+
+          .glass-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(255, 255, 255, 0.08) 50%,
+              transparent 100%
+            );
+            transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          }
+
+          .glass-btn:hover::before { left: 100%; }
+
+          .glass-btn:hover {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: translateY(-1px);
+            box-shadow:
+              0 8px 40px rgba(0, 0, 0, 0.5),
+              inset 0 1px 1px rgba(255, 255, 255, 0.18),
+              0 0 20px rgba(255, 255, 255, 0.04);
+          }
+
+          .glass-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+          }
+
+          .glass-btn:disabled,
+          .glass-btn[aria-disabled="true"] {
+            opacity: 0.3;
+            cursor: not-allowed;
+            pointer-events: none;
+          }
+
+          .glass-btn-primary {
+            background: rgba(248, 250, 252, 0.15);
+            border-color: rgba(248, 250, 252, 0.35);
+            box-shadow: 0 4px 30px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.2), 0 0 30px rgba(255,255,255,0.04);
+          }
+
+          .glass-btn-primary:hover {
+            background: rgba(248, 250, 252, 0.22);
+            border-color: rgba(248, 250, 252, 0.55);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.55), inset 0 1px 1px rgba(255,255,255,0.28), 0 0 40px rgba(255,255,255,0.06);
+          }
+
+          .glass-btn-danger {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.28);
+            color: #FCA5A5;
+          }
+
+          .glass-btn-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+          }
+
+          /* ── CARD SURFACES ON OBSIDIAN ───────────────────────────── */
+          .obsidian-card {
+            background: rgba(255, 255, 255, 0.04);
+            -webkit-backdrop-filter: blur(24px) saturate(140%);
+            backdrop-filter: blur(24px) saturate(140%);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 18px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+          }
+
+          .obsidian-card:hover {
+            background: rgba(255, 255, 255, 0.065);
+            border-color: rgba(255, 255, 255, 0.14);
+            transform: translateY(-2px);
+            box-shadow: 0 16px 60px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.1);
+          }
+
+          /* ── SPACING & LAYOUT TOKENS ─────────────────────────────── */
+          .obsidian-section { padding-top: 4rem; padding-bottom: 4rem; }
+          .obsidian-grid-gap { gap: 3rem; }
+          .internal-page-wrapper .divider-line { display: none !important; }
+
+          /* ── TICKER ─────────────────────────────────────────────── */
+          @keyframes ticker-scroll {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-33.333%); }
+          }
+
+          .ticker-track {
+            animation: ticker-scroll 28s linear infinite;
+          }
+
+          .ticker-track:hover {
+            animation-play-state: paused;
+          }
+        `,
+          }}
+        />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+          /* ════════════════════════════════════════════════════════════
+             QUVANTI iOS MICRO-ICON SYSTEM — Apple Spring Physics Engine
+             Hardware-accelerated, 60FPS locked, zero layout shift
+             ════════════════════════════════════════════════════════════ */
+
+          /* ── BASE SPRING WRAPPER ──────────────────────────────────── */
+          .qvi {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            will-change: transform, opacity;
+            transform-origin: center center;
+            line-height: 0;
+            flex-shrink: 0;
+            transition:
+              transform  320ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              opacity    280ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              filter     320ms cubic-bezier(0.4, 0, 0.2, 1);
+          }
+
+          /* ════════════════════════════════════════════════════════════
+             LAYER 1 — GLOBAL LUCIDE SPRING PHYSICS
+             Automatically hits every icon on every page — zero extra work
+             ════════════════════════════════════════════════════════════ */
+          .lucide {
+            transition:
+              transform 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              opacity   220ms cubic-bezier(0.4, 0, 0.2, 1),
+              filter    300ms cubic-bezier(0.4, 0, 0.2, 1),
+              color     200ms ease;
+            transform-origin: center center;
+            will-change: transform;
+          }
+
+          /* Hover: spring scale-up + micro lift */
+          button:not(:disabled):hover .lucide,
+          a:hover .lucide,
+          [role="button"]:not(:disabled):hover .lucide,
+          label:hover .lucide {
+            transform: scale(1.14) translateY(-0.5px);
+          }
+
+          /* Active: iOS compression snap */
+          button:not(:disabled):active .lucide,
+          a:active .lucide,
+          [role="button"]:active .lucide {
+            transform: scale(0.86) !important;
+            transition: transform 80ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+          }
+
+          /* Active nav icon: glow + scale */
+          .qvi-nav-active .lucide {
+            filter: drop-shadow(0 0 6px currentColor);
+            transform: scale(1.08);
+          }
+
+          /* ════════════════════════════════════════════════════════════
+             LAYER 2 — QVI VARIANT CLASSES
+             Applied via AnimatedIcon or direct className
+             ════════════════════════════════════════════════════════════ */
+
+          /* Tactile spring compression on parent :active */
+          button:active .qvi,
+          a:active      .qvi,
+          [role="button"]:active .qvi { transform: scale(0.92); }
+
+          /* ── TOGGLE — iOS Bluetooth/WiFi path-draw morph ──────────── */
+          .qvi-off {
+            opacity: 0.25;
+            transform: scale(0.82);
+            filter: none;
+          }
+          .qvi-on {
+            opacity: 1;
+            transform: scale(1);
+            filter: drop-shadow(0 0 5px currentColor);
+          }
+          @keyframes qviToggleOn {
+            0%   { transform: scale(0.65) rotate(-12deg); opacity: 0.15; filter: none; }
+            45%  { transform: scale(1.22) rotate(4deg);  opacity: 1;    filter: drop-shadow(0 0 10px currentColor); }
+            70%  { transform: scale(0.95) rotate(-1deg); opacity: 1;    filter: drop-shadow(0 0 6px currentColor); }
+            100% { transform: scale(1.00) rotate(0deg);  opacity: 1;    filter: drop-shadow(0 0 5px currentColor); }
+          }
+          .qvi-on { animation: qviToggleOn 0.48s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+
+          @keyframes qviToggleOff {
+            0%   { transform: scale(1) rotate(0deg);    opacity: 1;    }
+            40%  { transform: scale(0.9) rotate(-4deg); opacity: 0.5;  }
+            100% { transform: scale(0.82) rotate(0deg); opacity: 0.25; filter: none; }
+          }
+          .qvi-off { animation: qviToggleOff 0.32s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+          /* ── ACTION — continuous Y-axis breathing ─────────────────── */
+          @keyframes qviAction {
+            0%, 100% { transform: translateY(0px)  scale(1);    }
+            50%       { transform: translateY(-1.5px) scale(1.06); }
+          }
+          .qvi-action {
+            animation: qviAction 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+          }
+
+          /* ── ALERT — iOS notification pivot ──────────────────────── */
+          @keyframes qviShake {
+            0%   { transform: rotate(0deg);    }
+            12%  { transform: rotate(16deg);   }
+            28%  { transform: rotate(-16deg);  }
+            44%  { transform: rotate(11deg);   }
+            60%  { transform: rotate(-8deg);   }
+            73%  { transform: rotate(5deg);    }
+            84%  { transform: rotate(-3deg);   }
+            93%  { transform: rotate(1.5deg);  }
+            100% { transform: rotate(0deg);    }
+          }
+          .qvi-shake {
+            animation: qviShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+          }
+
+          /* ── BREATHE — slow passive pulse ────────────────────────── */
+          @keyframes qviPulse {
+            0%, 100% { opacity: 1;    transform: scale(1); }
+            50%       { opacity: 0.55; transform: scale(0.96); }
+          }
+          .qvi-breathe {
+            animation: qviPulse 3.2s ease-in-out infinite;
+          }
+
+          /* ── GLOW — color-reactive drop-shadow pulse ──────────────── */
+          @keyframes qviGlow {
+            0%, 100% { filter: drop-shadow(0 0 3px currentColor);  }
+            50%       { filter: drop-shadow(0 0 12px currentColor) drop-shadow(0 0 22px currentColor); }
+          }
+          .qvi-glow {
+            animation: qviGlow 2.4s ease-in-out infinite;
+          }
+
+          /* ── SPIN — continuous smooth rotation ───────────────────── */
+          @keyframes qviSpin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+          }
+          .qvi-spin {
+            animation: qviSpin 1.1s linear infinite;
+          }
+
+          /* ── LIVE — iOS radar ping for live/active status ─────────── */
+          @keyframes qviLive {
+            0%, 100% { transform: scale(1);    opacity: 1;    }
+            50%       { transform: scale(1.22); opacity: 0.80; }
+          }
+          .qvi-live {
+            animation: qviLive 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+
+          /* ── SUCCESS — checkmark spring burst ────────────────────── */
+          @keyframes qviSuccess {
+            0%   { transform: scale(0.5) rotate(-20deg); opacity: 0; filter: none; }
+            50%  { transform: scale(1.28) rotate(6deg);  opacity: 1; filter: drop-shadow(0 0 10px #22c55e); }
+            75%  { transform: scale(0.93) rotate(-2deg); opacity: 1; filter: drop-shadow(0 0 5px #22c55e); }
+            100% { transform: scale(1.00) rotate(0deg);  opacity: 1; filter: drop-shadow(0 0 3px #22c55e); }
+          }
+          .qvi-success {
+            animation: qviSuccess 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+          }
+
+          /* ── ERROR — x-axis shake with tint ─────────────────────── */
+          @keyframes qviError {
+            0%, 100% { transform: translateX(0) rotate(0deg); }
+            18%       { transform: translateX(-5px) rotate(-4deg); }
+            36%       { transform: translateX( 5px) rotate( 4deg); }
+            54%       { transform: translateX(-3px) rotate(-2deg); }
+            72%       { transform: translateX( 2px) rotate( 1deg); }
+          }
+          .qvi-error {
+            animation: qviError 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+            filter: drop-shadow(0 0 6px #ef4444);
+          }
+
+          /* ── FLOAT — gentle vertical drift for decorative icons ───── */
+          @keyframes qviFloat {
+            0%, 100% { transform: translateY(0px) scale(1);     }
+            33%       { transform: translateY(-3px) scale(1.03); }
+            66%       { transform: translateY(-1.5px) scale(1.01); }
+          }
+          .qvi-float {
+            animation: qviFloat 3.5s ease-in-out infinite;
+          }
+
+          /* ── DRAW — spring mount animation ───────────────────────── */
+          @keyframes qviDraw {
+            0%   { transform: scale(0) rotate(-18deg); opacity: 0; }
+            55%  { transform: scale(1.18) rotate(4deg); opacity: 1; }
+            78%  { transform: scale(0.92) rotate(-1deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+          }
+          .qvi-draw {
+            animation: qviDraw 0.52s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+          }
+
+          /* ── BURST — action tap explosion ────────────────────────── */
+          @keyframes qviBurst {
+            0%   { transform: scale(1) rotate(0deg);   }
+            28%  { transform: scale(1.4) rotate(10deg); }
+            55%  { transform: scale(0.88) rotate(-4deg); }
+            78%  { transform: scale(1.06) rotate(1deg); }
+            100% { transform: scale(1) rotate(0deg);   }
+          }
+          .qvi-burst {
+            animation: qviBurst 0.48s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+          }
+
+          /* ── ORBIT — continuous rotation (settings/loading) ──────── */
+          @keyframes qviOrbit {
+            from { transform: rotate(0deg); }
+            50%  { transform: rotate(180deg) scale(0.92); }
+            to   { transform: rotate(360deg); }
+          }
+          .qvi-orbit {
+            animation: qviOrbit 5s linear infinite;
+          }
+
+          /* ── SHIMMER — premium/crown glow ────────────────────────── */
+          @keyframes qviShimmer {
+            0%, 100% { 
+              filter: drop-shadow(0 0 4px rgba(251,191,36,0.7)); 
+              transform: scale(1) rotate(0deg); 
+            }
+            50% { 
+              filter: drop-shadow(0 0 14px rgba(251,191,36,1)) drop-shadow(0 0 28px rgba(251,191,36,0.45)); 
+              transform: scale(1.1) rotate(3deg); 
+            }
+          }
+          .qvi-shimmer {
+            animation: qviShimmer 2.2s ease-in-out infinite;
+          }
+
+          /* ── THINK — AI/processing oscillate ─────────────────────── */
+          @keyframes qviThink {
+            0%, 100% { transform: scale(1) rotate(0deg);   opacity: 1; }
+            25%       { transform: scale(1.06) rotate(-6deg); opacity: 0.9; }
+            75%       { transform: scale(1.06) rotate(6deg);  opacity: 0.9; }
+          }
+          .qvi-think {
+            animation: qviThink 1.4s ease-in-out infinite;
+          }
+
+          /* ── MORPH — smooth size+opacity state morph ──────────────── */
+          @keyframes qviMorph {
+            0%   { transform: scale(0.75); opacity: 0.3; }
+            60%  { transform: scale(1.12); opacity: 1;   }
+            100% { transform: scale(1.00); opacity: 1;   }
+          }
+          .qvi-morph {
+            animation: qviMorph 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+          }
+
+          /* ── PING — concentric ripple (like notification badge) ───── */
+          @keyframes qviPing {
+            0%   { transform: scale(1); opacity: 1; }
+            70%  { transform: scale(1.6); opacity: 0; }
+            100% { transform: scale(1.6); opacity: 0; }
+          }
+          .qvi-ping {
+            position: relative;
+          }
+          .qvi-ping::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: 0;
+            animation: qviPing 1.5s ease-in-out infinite;
+          }
+
+          /* ── CHARGE — power/energy charge sweep ──────────────────── */
+          @keyframes qviCharge {
+            0%   { transform: scale(0.85) rotate(-5deg); opacity: 0.4; filter: none; }
+            30%  { transform: scale(1.08) rotate(2deg);  opacity: 1;   filter: drop-shadow(0 0 8px currentColor); }
+            55%  { transform: scale(0.97) rotate(-1deg); opacity: 1;   filter: drop-shadow(0 0 5px currentColor); }
+            100% { transform: scale(1.00) rotate(0deg);  opacity: 1;   filter: drop-shadow(0 0 3px currentColor); }
+          }
+          .qvi-charge {
+            animation: qviCharge 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+          }
+
+          /* ── TREND — upward momentum (TrendingUp, BarChart) ──────── */
+          @keyframes qviTrend {
+            0%, 100% { transform: translateY(0) scale(1);      filter: none; }
+            40%       { transform: translateY(-2px) scale(1.1); filter: drop-shadow(0 2px 6px currentColor); }
+          }
+          .qvi-trend {
+            animation: qviTrend 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+          }
+        `,
+          }}
+        />
+      </head>
+      <body className="antialiased">
+        {/* ── GLOBAL LOADER — fires on every initial page mount ───── */}
+        <GlobalLoader />
+
+        <QueryClientProvider client={queryClient}>
+          <IntegrityTicker />
+          <DisclaimerPopup />
+          <CookieConsent />
+          <PWAInstallPrompt />
+          <OfflineDetector />
+          {children}
+        </QueryClientProvider>
+      </body>
+    </html>
+  );
+}
+
+
+
