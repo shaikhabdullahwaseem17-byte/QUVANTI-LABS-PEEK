@@ -1,0 +1,106 @@
+{
+  "name": "Quvanti Labs | The Sovereign AI Quant Terminal",
+  "short_name": "Quvanti Labs",
+  "description": "Hedge-fund grade stochastic simulations, Hurst Exponents, and Bayesian backtesting. Built for the Wolves of Wall Street.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#5B8CFF",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "categories": ["finance", "productivity", "business"],
+  "icons": [
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/72x/",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/96x/",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/128x/",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/144x/",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/152x/",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/192x/",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/384x/",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/512x/",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/1200x630/",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Quvanti Labs — The Sovereign AI Quant Terminal"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Command Center — all agents, live P&L, alerts",
+      "url": "/dashboard",
+      "icons": [{ "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/96x/", "sizes": "96x96" }]
+    },
+    {
+      "name": "Create Agent",
+      "short_name": "New Agent",
+      "description": "Deploy a new AI trading agent in 60 seconds",
+      "url": "/agents/create",
+      "icons": [{ "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/96x/", "sizes": "96x96" }]
+    },
+    {
+      "name": "Live Signals",
+      "short_name": "Signals",
+      "description": "Real-time market signals powered by Bayesian AI",
+      "url": "/signals",
+      "icons": [{ "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/96x/", "sizes": "96x96" }]
+    },
+    {
+      "name": "Live Broker",
+      "short_name": "Broker",
+      "description": "Connect Alpaca or IBKR for live order execution",
+      "url": "/broker",
+      "icons": [{ "src": "https://ucarecdn.com/9a80fbbe-e767-4795-9431-1d396dc54d42/-/format/auto/-/resize/96x/", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
+
+
+
