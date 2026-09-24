@@ -1,0 +1,965 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Play,
+  Pause,
+  Trash2,
+  Terminal,
+  Share2,
+  Plus,
+  Eye,
+  Copy,
+  Check,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Zap,
+  Activity,
+  Award,
+  ChevronRight,
+  AlertTriangle,
+} from "lucide-react";
+import AppNav from "@/components/AppNav";
+import AgentTerminal from "@/components/AgentTerminal";
+import { useOmniStore } from "@/store/useOmniStore";
+import AnimatedIcon from "@/components/AnimatedIcon";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtPct(v, showSign = true) {
+  const n = Number(v);
+  if (isNaN(n) || v === null || v === undefined) return "—";
+  return (showSign && n > 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+function fmtNum(v, d = 2) {
+  const n = Number(v);
+  if (isNaN(n) || v === null || v === undefined) return "—";
+  return n.toFixed(d);
+}
+function timeAgo(dateStr) {
+  if (!dateStr) return "—";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+// ── Status badge ─────────────────────────────────────────────────────────────
+function StatusDot({ status }) {
+  const colors = {
+    active: { bg: "#34D399", label: "Active" },
+    paused: { bg: "#FBBF24", label: "Paused" },
+    stopped: { bg: "#F87171", label: "Stopped" },
+  };
+  const c = colors[status] || colors.stopped;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: c.bg,
+          boxShadow: `0 0 7px ${c.bg}88`,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontSize: 11,
+          color: c.bg,
+          fontWeight: 600,
+          textTransform: "capitalize",
+        }}
+      >
+        {c.label}
+      </span>
+    </div>
+  );
+}
+
+// ── Agent Card ────────────────────────────────────────────────────────────────
+function AgentCard({
+  agent,
+  onOpenTerminal,
+  onPauseResume,
+  onDelete,
+  onShare,
+}) {
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const bt = agent.latest_backtest || {};
+  const ret = bt.total_return ?? null;
+  const sharpe = bt.sharpe_ratio ?? null;
+  const winRate = bt.win_rate ?? null;
+  const hasData = ret !== null;
+
+  const handleShare = async () => {
+    setSharing(true);
+    try {
+      const res = await fetch("/api/agents/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent.id, action: "enable" }),
+      });
+      const data = await res.json();
+      if (data.url) setShareUrl(data.url);
+    } catch (e) {
+      console.error("Share failed:", e);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const copyUrl = () => {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.038)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 20,
+        padding: "24px",
+        backdropFilter: "blur(24px) saturate(140%)",
+        WebkitBackdropFilter: "blur(24px) saturate(140%)",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.55)",
+        transition: "all 0.28s cubic-bezier(0.4,0,0.2,1)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.058)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)";
+        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.boxShadow = "0 16px 60px rgba(0,0,0,0.65)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.038)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "0 8px 40px rgba(0,0,0,0.55)";
+      }}
+    >
+      {/* ── Header ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "#F8FAFC",
+              margin: "0 0 6px 0",
+              letterSpacing: "-0.03em",
+              lineHeight: 1.2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {agent.name}
+          </h2>
+          <StatusDot status={agent.status} />
+        </div>
+        <span
+          style={{
+            fontSize: 10,
+            color: "rgba(255,255,255,0.28)",
+            flexShrink: 0,
+            paddingTop: 2,
+          }}
+        >
+          {timeAgo(agent.created_at)}
+        </span>
+      </div>
+
+      {/* ── Metrics Grid ── */}
+      <div
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}
+      >
+        <div
+          style={{
+            padding: "12px 14px",
+            background: "rgba(255,255,255,0.028)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              color: "rgba(255,255,255,0.35)",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              marginBottom: 5,
+            }}
+          >
+            Return
+          </div>
+          <div
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              fontFamily: "monospace",
+              color: !hasData
+                ? "rgba(255,255,255,0.25)"
+                : ret >= 0
+                  ? "#34D399"
+                  : "#F87171",
+              letterSpacing: "-0.02em",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            {hasData ? (
+              <>
+                {ret >= 0 ? (
+                  <TrendingUp size={12} />
+                ) : (
+                  <TrendingDown size={12} />
+                )}
+                {fmtPct(ret)}
+              </>
+            ) : (
+              "—"
+            )}
+          </div>
+        </div>
+        <div
+          style={{
+            padding: "12px 14px",
+            background: "rgba(255,255,255,0.028)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              color: "rgba(255,255,255,0.35)",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              marginBottom: 5,
+            }}
+          >
+            Sharpe
+          </div>
+          <div
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              fontFamily: "monospace",
+              color:
+                hasData && sharpe >= 1
+                  ? "#34D399"
+                  : hasData
+                    ? "#FBBF24"
+                    : "rgba(255,255,255,0.25)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {hasData ? fmtNum(sharpe, 2) : "—"}
+          </div>
+        </div>
+        <div
+          style={{
+            padding: "12px 14px",
+            background: "rgba(255,255,255,0.028)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 12,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              color: "rgba(255,255,255,0.35)",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              marginBottom: 5,
+            }}
+          >
+            Win Rate
+          </div>
+          <div
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              fontFamily: "monospace",
+              color:
+                hasData && winRate >= 50
+                  ? "#34D399"
+                  : hasData
+                    ? "#FBBF24"
+                    : "rgba(255,255,255,0.25)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {hasData ? fmtPct(winRate, false) : "—"}
+          </div>
+        </div>
+      </div>
+
+      {!hasData && (
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "rgba(251,191,36,0.06)",
+            border: "1px solid rgba(251,191,36,0.15)",
+            borderRadius: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <AlertTriangle
+            size={12}
+            style={{ color: "#FBBF24", flexShrink: 0 }}
+          />
+          <span style={{ fontSize: 11, color: "#FBBF24" }}>
+            No backtest data — open agent to run diagnostics
+          </span>
+        </div>
+      )}
+
+      {/* ── Share URL row ── */}
+      {shareUrl && (
+        <div
+          style={{
+            padding: "10px 14px",
+            background: "rgba(52,211,153,0.06)",
+            border: "1px solid rgba(52,211,153,0.2)",
+            borderRadius: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span
+            style={{
+              flex: 1,
+              fontSize: 10,
+              color: "#8B9EB5",
+              fontFamily: "monospace",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {shareUrl}
+          </span>
+          <button
+            onClick={copyUrl}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 10px",
+              borderRadius: 7,
+              border: "1px solid rgba(52,211,153,0.3)",
+              background: "rgba(52,211,153,0.1)",
+              color: "#34D399",
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      )}
+
+      {/* ── Action Buttons ── */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {/* VIEW — primary white */}
+        <a
+          href={`/agents/${agent.id}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "8px 16px",
+            borderRadius: 10,
+            background: "#ffffff",
+            color: "#000000",
+            fontSize: 12,
+            fontWeight: 700,
+            textDecoration: "none",
+            boxShadow: "0 2px 10px rgba(255,255,255,0.1)",
+            letterSpacing: "-0.01em",
+            transition: "all 0.2s",
+            flexShrink: 0,
+          }}
+        >
+          <Eye size={12} />
+          View
+          <ChevronRight size={11} style={{ opacity: 0.6 }} />
+        </a>
+
+        {/* TERMINAL */}
+        <button
+          onClick={() => onOpenTerminal(agent)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "8px 14px",
+            borderRadius: 10,
+            background: "rgba(91,140,255,0.1)",
+            border: "1px solid rgba(91,140,255,0.28)",
+            color: "#93C5FD",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: "-0.01em",
+            flexShrink: 0,
+            transition: "all 0.2s",
+          }}
+        >
+          <Terminal size={12} />
+          Terminal
+        </button>
+
+        {/* PAUSE / RESUME */}
+        <button
+          onClick={() => onPauseResume(agent)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "8px 14px",
+            borderRadius: 10,
+            background:
+              agent.status === "active"
+                ? "rgba(251,191,36,0.08)"
+                : "rgba(52,211,153,0.08)",
+            border: `1px solid ${agent.status === "active" ? "rgba(251,191,36,0.28)" : "rgba(52,211,153,0.28)"}`,
+            color: agent.status === "active" ? "#FBBF24" : "#34D399",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: "-0.01em",
+            flexShrink: 0,
+            transition: "all 0.2s",
+          }}
+        >
+          <AnimatedIcon
+            icon={agent.status === "active" ? Pause : Play}
+            size={12}
+            variant="toggle"
+            active={agent.status === "active"}
+          />
+          {agent.status === "active" ? "Pause" : "Resume"}
+        </button>
+
+        {/* SHARE */}
+        <button
+          onClick={handleShare}
+          disabled={sharing}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "8px 14px",
+            borderRadius: 10,
+            background: "rgba(52,211,153,0.07)",
+            border: "1px solid rgba(52,211,153,0.22)",
+            color: "#34D399",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: sharing ? "not-allowed" : "pointer",
+            letterSpacing: "-0.01em",
+            flexShrink: 0,
+            opacity: sharing ? 0.6 : 1,
+            transition: "all 0.2s",
+          }}
+        >
+          <Award size={12} />
+          {sharing ? "…" : shareUrl ? "Reshare" : "Share"}
+        </button>
+
+        {/* DELETE */}
+        <button
+          onClick={() => onDelete(agent)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: "rgba(248,113,113,0.07)",
+            border: "1px solid rgba(248,113,113,0.22)",
+            color: "#F87171",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: "-0.01em",
+            flexShrink: 0,
+            transition: "all 0.2s",
+            marginLeft: "auto",
+          }}
+        >
+          <Trash2 size={12} />
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function AgentsPage() {
+  const agents = useOmniStore((s) => s.agents);
+  const agentFetchStatus = useOmniStore((s) => s.agentFetchStatus);
+  const syncAgents = useOmniStore((s) => s.syncAgents);
+  const removeAgentOptimistic = useOmniStore((s) => s.removeAgentOptimistic);
+  const updateAgentStatusOptimistic = useOmniStore(
+    (s) => s.updateAgentStatusOptimistic,
+  );
+
+  const [terminalAgent, setTerminalAgent] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+
+  useEffect(() => {
+    syncAgents();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncAgents();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = setInterval(syncAgents, 20000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handlePauseResume = async (agent) => {
+    const newStatus = agent.status === "active" ? "paused" : "active";
+    updateAgentStatusOptimistic(agent.id, newStatus);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error("Status update failed");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      await syncAgents();
+    }
+  };
+
+  const handleDelete = async (agent) => {
+    if (
+      !confirm(
+        `Delete "${agent.name}" permanently?\n\nThis will close all positions and cannot be undone.`,
+      )
+    )
+      return;
+    setDeleting(agent.id);
+    removeAgentOptimistic(agent.id);
+    try {
+      const res = await fetch("/api/agents/liquidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent.id }),
+      });
+      if (!res.ok) throw new Error("Delete failed");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleting(null);
+      await syncAgents();
+    }
+  };
+
+  const isInitialLoad = agentFetchStatus === "loading" && agents.length === 0;
+
+  const activeCount = agents.filter((a) => a.status === "active").length;
+  const pausedCount = agents.filter((a) => a.status === "paused").length;
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#000000",
+        color: "#F8FAFC",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Background orb */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "-20%",
+          left: "-10%",
+          width: "60vw",
+          height: "70vh",
+          borderRadius: "50%",
+          pointerEvents: "none",
+          zIndex: 0,
+          background:
+            "radial-gradient(ellipse at center, rgba(218,228,238,0.55) 0%, rgba(160,178,195,0.12) 45%, transparent 80%)",
+          animation: "agentOrbFloat 14s ease-in-out infinite",
+        }}
+      />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <AppNav />
+
+        <div
+          style={{
+            maxWidth: 1200,
+            margin: "0 auto",
+            padding: "40px 24px 80px",
+          }}
+        >
+          {/* ── Page Header ── */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 20,
+              marginBottom: 36,
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  fontSize: 36,
+                  fontWeight: 700,
+                  color: "#F8FAFC",
+                  margin: "0 0 8px 0",
+                  letterSpacing: "-0.05em",
+                  lineHeight: 1.05,
+                }}
+              >
+                My Agents
+              </h1>
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "rgba(255,255,255,0.42)",
+                  margin: 0,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {agents.length === 0
+                  ? "No agents deployed yet"
+                  : `${agents.length} agent${agents.length !== 1 ? "s" : ""} · ${activeCount} active · ${pausedCount} paused`}
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                onClick={syncAgents}
+                disabled={agentFetchStatus === "loading"}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "9px 16px",
+                  borderRadius: 11,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                <AnimatedIcon
+                  icon={RefreshCw}
+                  size={13}
+                  variant={agentFetchStatus === "loading" ? "spin" : "spring"}
+                />
+                Refresh
+              </button>
+              <a
+                href="/agents/create"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "10px 22px",
+                  borderRadius: 11,
+                  background: "#ffffff",
+                  color: "#000000",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  letterSpacing: "-0.02em",
+                  boxShadow: "0 4px 20px rgba(255,255,255,0.12)",
+                  transition: "all 0.2s",
+                }}
+              >
+                <Plus size={14} />
+                Create Agent
+              </a>
+            </div>
+          </div>
+
+          {/* ── Stat Pills ── */}
+          {agents.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                marginBottom: 32,
+              }}
+            >
+              {[
+                {
+                  label: "Total Agents",
+                  value: agents.length,
+                  color: "#EEF2FF",
+                },
+                { label: "Active", value: activeCount, color: "#34D399" },
+                { label: "Paused", value: pausedCount, color: "#FBBF24" },
+                {
+                  label: "Avg Return",
+                  value: (() => {
+                    const withData = agents.filter(
+                      (a) =>
+                        a.latest_backtest?.total_return !== null &&
+                        a.latest_backtest?.total_return !== undefined,
+                    );
+                    if (withData.length === 0) return "—";
+                    const avg =
+                      withData.reduce(
+                        (s, a) => s + Number(a.latest_backtest.total_return),
+                        0,
+                      ) / withData.length;
+                    return (avg >= 0 ? "+" : "") + avg.toFixed(1) + "%";
+                  })(),
+                  color: "#5B8CFF",
+                },
+              ].map(({ label, value, color }) => (
+                <div
+                  key={label}
+                  style={{
+                    padding: "10px 18px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 9,
+                      color: "rgba(255,255,255,0.35)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                    }}
+                  >
+                    {label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 700,
+                      color,
+                      letterSpacing: "-0.03em",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Loading State ── */}
+          {isInitialLoad && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "100px 0",
+                gap: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  border: "2px solid rgba(255,255,255,0.08)",
+                  borderTopColor: "rgba(255,255,255,0.5)",
+                  borderRadius: "50%",
+                  animation: "spin 0.9s linear infinite",
+                }}
+              />
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "rgba(255,255,255,0.3)",
+                  margin: 0,
+                }}
+              >
+                Loading your agents…
+              </p>
+            </div>
+          )}
+
+          {/* ── Empty State ── */}
+          {!isInitialLoad && agents.length === 0 && (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "80px 24px",
+                background: "rgba(255,255,255,0.025)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                borderRadius: 24,
+              }}
+            >
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 18,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 20px",
+                }}
+              >
+                <AnimatedIcon
+                  icon={Activity}
+                  size={28}
+                  variant="float"
+                  style={{ color: "rgba(255,255,255,0.2)" }}
+                />
+              </div>
+              <h2
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: "#F8FAFC",
+                  margin: "0 0 10px",
+                  letterSpacing: "-0.04em",
+                }}
+              >
+                No Agents Yet
+              </h2>
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "rgba(255,255,255,0.38)",
+                  margin: "0 0 28px",
+                  maxWidth: 380,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                  lineHeight: 1.6,
+                }}
+              >
+                Create your first AI trading agent. Define a strategy in plain
+                English and let Quvanti build, backtest, and deploy it.
+              </p>
+              <a
+                href="/agents/create"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "12px 28px",
+                  borderRadius: 12,
+                  background: "#ffffff",
+                  color: "#000000",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  letterSpacing: "-0.02em",
+                  boxShadow: "0 4px 24px rgba(255,255,255,0.14)",
+                }}
+              >
+                <Plus size={15} />
+                Create Your First Agent
+              </a>
+            </div>
+          )}
+
+          {/* ── Agent Grid ── */}
+          {!isInitialLoad && agents.length > 0 && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+                gap: 20,
+              }}
+            >
+              {agents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  onOpenTerminal={setTerminalAgent}
+                  onPauseResume={handlePauseResume}
+                  onDelete={handleDelete}
+                  onShare={() => {}}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Agent Terminal Slide-Over ── */}
+      {terminalAgent && (
+        <AgentTerminal
+          agentId={Number(terminalAgent.id)}
+          agentName={terminalAgent.name}
+          agentData={terminalAgent}
+          onClose={() => setTerminalAgent(null)}
+        />
+      )}
+
+      <style jsx global>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes agentOrbFloat {
+          0%,100% { transform: scale(1) translate(0,0); opacity: 0.9; }
+          40%     { transform: scale(1.06) translate(18px,-14px); opacity: 1; }
+          70%     { transform: scale(0.97) translate(-8px,10px); opacity: 0.85; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+
