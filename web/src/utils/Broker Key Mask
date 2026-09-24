@@ -1,0 +1,159 @@
+/**
+ * ============================================================
+ * QUVANTI LABS — CLIENT-SIDE BROKER KEY MASK UTILITY
+ * ============================================================
+ * Provides display-safe masking of broker API keys.
+ * The raw key NEVER leaves the browser input field —
+ * it's submitted once to /api/broker/mask-key and then discarded.
+ *
+ * Usage:
+ *   import { maskApiKey, submitKeyForMasking } from '@/utils/brokerKeyMask';
+ *
+ *   // Display: mask a key locally before the server responds
+ *   const display = maskApiKey(rawKey);  // "PK_pk_••••••••9xZq"
+ *
+ *   // Submit: send key to backend, get masked version stored
+ *   const { maskedKey, error } = await submitKeyForMasking(rawKey, 'alpaca');
+ * ============================================================
+ */
+
+// ── Local Masking (pure client-side, instant feedback) ───────────────────
+/**
+ * Mask an API key for display.
+ * Mirrors the server-side logic in /api/broker/mask-key exactly.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+export function maskApiKey(key) {
+  if (!key || typeof key !== "string") return "••••••••••••";
+  const clean = key.trim();
+  if (clean.length <= 10) return "•".repeat(clean.length);
+  const prefix = clean.substring(0, 6);
+  const suffix = clean.substring(clean.length - 4);
+  return `${prefix}••••••••${suffix}`;
+}
+
+/**
+ * Determine if a string looks like it's already masked.
+ * Prevents double-masking when re-rendering stored values.
+ */
+export function isAlreadyMasked(key) {
+  return typeof key === "string" && key.includes("••••••••");
+}
+
+/**
+ * Format a masked key with broker prefix label.
+ * @param {string} masked - e.g. "PK_pk_••••••••9xZq"
+ * @param {string} broker - 'alpaca' | 'ibkr' | 'paper'
+ */
+export function formatMaskedKey(masked, broker) {
+  if (!masked) return "Not connected";
+  const prefix =
+    { alpaca: "Alpaca", ibkr: "IBKR", paper: "Paper" }[broker] || broker;
+  return `${prefix}: ${masked}`;
+}
+
+// ── Server Submission ────────────────────────────────────────────────────
+/**
+ * Submit a raw key to the backend for masking and storage.
+ * The raw key is sent ONCE over HTTPS and then discarded from the browser.
+ *
+ * @param {string} rawKey   - The user's raw API key
+ * @param {string} broker   - 'alpaca' | 'ibkr' | 'paper'
+ * @param {string} keyType  - 'api_key' | 'secret_key'
+ * @returns {{ maskedKey: string|null, error: string|null, fingerprint: string|null }}
+ */
+export async function submitKeyForMasking(
+  rawKey,
+  broker = "alpaca",
+  keyType = "api_key",
+) {
+  if (!rawKey || rawKey.trim().length < 8) {
+    return {
+      maskedKey: null,
+      error: "Key must be at least 8 characters",
+      fingerprint: null,
+    };
+  }
+
+  // Immediate local mask for optimistic UI
+  const localMask = maskApiKey(rawKey);
+
+  try {
+    const response = await fetch("/api/broker/mask-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rawKey, broker, keyType }),
+    });
+
+    if (response.status === 429) {
+      return {
+        maskedKey: localMask,
+        error: "Too many key submissions. Try again shortly.",
+        fingerprint: null,
+      };
+    }
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      return {
+        maskedKey: null,
+        error: errData.error || "Key submission failed",
+        fingerprint: null,
+      };
+    }
+
+    const data = await response.json();
+    return {
+      maskedKey: data.maskedKey,
+      error: null,
+      fingerprint: data.fingerprint,
+    };
+  } catch (err) {
+    console.error("[BrokerKeyMask] Submission error:", err);
+    return {
+      maskedKey: null,
+      error: "Network error — key not saved",
+      fingerprint: null,
+    };
+  }
+}
+
+/**
+ * React hook for broker key management.
+ *
+ * Usage:
+ *   const { maskedKey, loading, error, submitKey } = useBrokerKey('alpaca');
+ */
+export function useBrokerKey(broker = "alpaca") {
+  const { useState, useCallback } = require("react");
+  const [maskedKey, setMaskedKey] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submitKey = useCallback(
+    async (rawKey, keyType = "api_key") => {
+      setLoading(true);
+      setError(null);
+      // Optimistic local mask — shows immediately
+      setMaskedKey(maskApiKey(rawKey));
+
+      const result = await submitKeyForMasking(rawKey, broker, keyType);
+
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setMaskedKey(result.maskedKey);
+      }
+      setLoading(false);
+      return result;
+    },
+    [broker],
+  );
+
+  return { maskedKey, loading, error, submitKey, maskApiKey };
+}
+
+
+
