@@ -1,0 +1,601 @@
+"use client";
+
+/**
+ * QUVANTI LABS — LIVE EXECUTION TERMINAL
+ * ────────────────────────────────────────
+ * Displays real-time agent execution logs sourced from the execution_logs table.
+ *
+ * Architecture:
+ *   1. On mount: fetches last 50 log entries from /api/agents/[id]/logs (HTTP)
+ *   2. SSE stream: connects to /api/agents/[id]/stream for live push events
+ *   3. New events are prepended to the top of the log (newest-first display)
+ *   4. Buffer capped at 50 entries — oldest entries are evicted
+ *
+ * NOTE on WebSocket vs SSE:
+ *   This platform runs on a serverless architecture.
+ *   socket.io requires a persistent Node.js process — incompatible.
+ *   Server-Sent Events (SSE) provide equivalent real-time push semantics
+ *   with native HTTP support and automatic reconnection.
+ *
+ * @param {object} props
+ * @param {number|string} props.agentId - Agent ID to stream logs for
+ * @param {number} props.maxLogs - Maximum log entries to buffer (default 50)
+ * @param {boolean} props.showHeader - Show/hide the terminal chrome (default true)
+ */
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { RefreshCw, Wifi, WifiOff, Trash2 } from "lucide-react";
+
+const LOG_MAX = 50;
+
+// ANSI-class → color map for log levels
+const LEVEL_STYLE = {
+  EXEC: { color: "#10b981", weight: 600 }, // green — trade executed
+  INFO: { color: "#8b9ea0", weight: 400 }, // muted — informational
+  WARN: { color: "#f59e0b", weight: 500 }, // amber — warning
+  ERROR: { color: "#ef4444", weight: 600 }, // red — error
+  SYSTEM: { color: "#5B8CFF", weight: 500 }, // blue — system message
+};
+
+// Reconnection backoff: [1s, 2s, 4s, 8s, 16s] — exponential, capped at 5 retries
+const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
+
+function formatTime(ts) {
+  if (!ts) return "??:??:??";
+  try {
+    return new Date(ts).toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "??:??:??";
+  }
+}
+
+function StatusPill({ status }) {
+  const map = {
+    connected: { color: "#10b981", label: "LIVE", pulse: true },
+    connecting: { color: "#f59e0b", label: "CONNECTING", pulse: false },
+    error: { color: "#ef4444", label: "RECONNECTING", pulse: false },
+    disconnected: { color: "#4b5563", label: "OFFLINE", pulse: false },
+  };
+  const c = map[status] || map.disconnected;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "5px",
+        padding: "2px 8px",
+        borderRadius: "3px",
+        background: `${c.color}18`,
+        border: `1px solid ${c.color}35`,
+        fontSize: "9px",
+        fontWeight: 700,
+        letterSpacing: "0.1em",
+        color: c.color,
+        fontFamily: "monospace",
+        textTransform: "uppercase",
+      }}
+    >
+      <div
+        style={{
+          width: "5px",
+          height: "5px",
+          borderRadius: "50%",
+          background: c.color,
+          boxShadow: c.pulse ? `0 0 6px ${c.color}` : "none",
+        }}
+      />
+      {c.label}
+    </span>
+  );
+}
+
+export default function LiveTerminal({
+  agentId,
+  maxLogs = LOG_MAX,
+  showHeader = true,
+}) {
+  const [logs, setLogs] = useState([]);
+  const [sseStatus, setSseStatus] = useState("disconnected");
+  const [retryCount, setRetryCount] = useState(0);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+
+  const sseRef = useRef(null);
+  const retryTimerRef = useRef(null);
+  const mountedRef = useRef(true);
+  const logEndRef = useRef(null);
+
+  // ── Fetch last N logs from execution_logs table via API ─────────────────
+  const fetchHistory = useCallback(async () => {
+    if (!agentId) return;
+    setIsLoadingHistory(true);
+    setHistoryError(null);
+
+    try {
+      const res = await fetch(`/api/agents/${agentId}/logs?limit=${maxLogs}`);
+      if (!res.ok) {
+        throw new Error(
+          `History fetch failed: ${res.status} ${res.statusText}`,
+        );
+      }
+      const data = await res.json();
+      const raw = Array.isArray(data.logs) ? data.logs : [];
+
+      // Map DB rows → terminal line objects
+      const lines = raw.map((row) => ({
+        id: row.id ?? `hist-${Math.random()}`,
+        level: row.log_level ?? "INFO",
+        message: row.message ?? "",
+        timestamp: row.logged_at ?? row.created_at,
+        symbol: row.symbol ?? null,
+        source: "history",
+      }));
+
+      if (mountedRef.current) {
+        // History is returned newest-first from the DB (ORDER BY logged_at DESC)
+        // Reverse to get chronological order for display
+        setLogs(lines.reverse().slice(-maxLogs));
+      }
+    } catch (err) {
+      console.error("[LiveTerminal] History fetch error:", err.message);
+      if (mountedRef.current) setHistoryError(err.message);
+    } finally {
+      if (mountedRef.current) setIsLoadingHistory(false);
+    }
+  }, [agentId, maxLogs]);
+
+  // ── SSE connection ────────────────────────────────────────────────────────
+  const connectSSE = useCallback(() => {
+    if (!agentId || !mountedRef.current) return;
+
+    // Teardown any existing connection
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
+
+    setSseStatus("connecting");
+
+    const url = `/api/agents/${agentId}/stream`;
+    const es = new EventSource(url);
+    sseRef.current = es;
+
+    es.onopen = () => {
+      if (!mountedRef.current) return;
+      setSseStatus("connected");
+      setRetryCount(0);
+    };
+
+    es.onmessage = (event) => {
+      if (!mountedRef.current) return;
+      try {
+        const data = JSON.parse(event.data);
+
+        // Heartbeat events — do not add to log
+        if (data.type === "heartbeat" || data.type === "connected") return;
+
+        const newLine = {
+          id: data.id ?? `sse-${Date.now()}-${Math.random()}`,
+          level: data.log_level ?? data.level ?? "INFO",
+          message: data.message ?? JSON.stringify(data),
+          timestamp:
+            data.logged_at ?? data.timestamp ?? new Date().toISOString(),
+          symbol: data.symbol ?? null,
+          source: "live",
+        };
+
+        setLogs((prev) => {
+          const updated = [...prev, newLine];
+          // Cap at maxLogs — evict oldest entries
+          return updated.slice(-maxLogs);
+        });
+      } catch (parseErr) {
+        console.warn("[LiveTerminal] SSE parse error:", parseErr.message);
+      }
+    };
+
+    es.onerror = () => {
+      if (!mountedRef.current) return;
+      setSseStatus("error");
+      es.close();
+      sseRef.current = null;
+
+      // Exponential backoff reconnect
+      const delay = BACKOFF_MS[Math.min(retryCount, BACKOFF_MS.length - 1)];
+      setRetryCount((prev) => prev + 1);
+
+      if (retryCount < 5) {
+        retryTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) connectSSE();
+        }, delay);
+      } else {
+        setSseStatus("disconnected");
+      }
+    };
+  }, [agentId, retryCount]);
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    if (!agentId) return;
+
+    fetchHistory();
+    connectSSE();
+
+    return () => {
+      mountedRef.current = false;
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
+
+  // ── Auto-scroll to bottom on new log entries ──────────────────────────────
+  useEffect(() => {
+    if (logs.length > 0 && logEndRef.current) {
+      logEndRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
+  }, [logs]);
+
+  const handleClear = () => setLogs([]);
+  const handleManualReconnect = () => {
+    setRetryCount(0);
+    connectSSE();
+  };
+
+  if (!agentId) {
+    return (
+      <div
+        style={{
+          background: "#000000",
+          border: "1px solid #1e293b",
+          borderRadius: "8px",
+          padding: "20px",
+          textAlign: "center",
+        }}
+      >
+        <p
+          style={{
+            color: "#4b5563",
+            fontFamily: "monospace",
+            fontSize: "12px",
+          }}
+        >
+          [TERMINAL] No agent ID provided.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: "#000000",
+        border: "1px solid #1e293b",
+        borderRadius: "8px",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        height: "256px", // h-64 equivalent
+        fontFamily: "monospace",
+      }}
+    >
+      {/* ── Terminal Chrome ─────────────────────────────────────────────── */}
+      {showHeader && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "6px 12px",
+            background: "#0a0a0a",
+            borderBottom: "1px solid #1e293b",
+            flexShrink: 0,
+          }}
+        >
+          {/* macOS traffic lights */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", gap: "5px" }}>
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#ef4444",
+                }}
+              />
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#f59e0b",
+                }}
+              />
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#10b981",
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontSize: "10px",
+                color: "#334155",
+                letterSpacing: "0.1em",
+              }}
+            >
+              quvanti-execution-engine — agent:{agentId} — {logs.length}/
+              {maxLogs} events
+            </span>
+          </div>
+
+          {/* Controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <StatusPill status={sseStatus} />
+
+            {sseStatus === "error" || sseStatus === "disconnected" ? (
+              <button
+                onClick={handleManualReconnect}
+                title="Reconnect SSE stream"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px",
+                  padding: "2px 8px",
+                  background: "transparent",
+                  border: "1px solid rgba(245,158,11,0.35)",
+                  borderRadius: "3px",
+                  color: "#f59e0b",
+                  fontSize: "9px",
+                  cursor: "pointer",
+                  fontFamily: "monospace",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                <RefreshCw size={8} /> RECONNECT
+              </button>
+            ) : null}
+
+            <button
+              onClick={handleClear}
+              title="Clear terminal"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "3px",
+                padding: "2px 8px",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "3px",
+                color: "rgba(255,255,255,0.25)",
+                fontSize: "9px",
+                cursor: "pointer",
+                fontFamily: "monospace",
+                letterSpacing: "0.08em",
+              }}
+            >
+              <Trash2 size={8} /> CLEAR
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Log Body ────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "8px 12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "1px",
+        }}
+      >
+        {/* Initial loading state */}
+        {isLoadingHistory && logs.length === 0 && (
+          <div
+            style={{
+              color: "#334155",
+              fontSize: "11px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <RefreshCw
+              size={10}
+              style={{ animation: "termSpin 1s linear infinite" }}
+            />
+            [LOADING] Fetching last {maxLogs} execution events from database...
+          </div>
+        )}
+
+        {/* History error */}
+        {historyError && (
+          <div
+            style={{ color: "#ef4444", fontSize: "11px", marginBottom: "4px" }}
+          >
+            [ERROR] {historyError}
+          </div>
+        )}
+
+        {/* SSE status messages */}
+        {!isLoadingHistory &&
+          logs.length === 0 &&
+          sseStatus === "connecting" && (
+            <div style={{ color: "#f59e0b", fontSize: "11px" }}>
+              [CONNECTING] Establishing SSE stream to execution engine...
+            </div>
+          )}
+        {!isLoadingHistory &&
+          logs.length === 0 &&
+          sseStatus === "connected" && (
+            <div style={{ color: "#8b9ea0", fontSize: "11px" }}>
+              [CONNECTED] Stream open. Waiting for first execution event...
+            </div>
+          )}
+        {!isLoadingHistory &&
+          logs.length === 0 &&
+          sseStatus === "disconnected" &&
+          !historyError && (
+            <div style={{ color: "#4b5563", fontSize: "11px" }}>
+              [OFFLINE] No connection. Click RECONNECT to retry.
+            </div>
+          )}
+
+        {/* Log entries */}
+        {logs.map((log, idx) => {
+          const style = LEVEL_STYLE[log.level] || LEVEL_STYLE.INFO;
+          const ts = formatTime(log.timestamp);
+          const isLive = log.source === "live";
+
+          return (
+            <div
+              key={log.id ?? idx}
+              style={{
+                fontSize: "11px",
+                lineHeight: "1.6",
+                color: style.color,
+                fontWeight: style.weight,
+                display: "flex",
+                gap: "8px",
+                alignItems: "flex-start",
+                opacity: isLive ? 1 : 0.75,
+              }}
+            >
+              {/* Timestamp */}
+              <span
+                style={{
+                  color: "#334155",
+                  flexShrink: 0,
+                  fontSize: "10px",
+                  marginTop: "1px",
+                }}
+              >
+                [{ts}]
+              </span>
+
+              {/* Level badge */}
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  color: style.color,
+                  opacity: 0.8,
+                  letterSpacing: "0.05em",
+                  minWidth: "40px",
+                }}
+              >
+                {log.level}
+              </span>
+
+              {/* Symbol tag (if present) */}
+              {log.symbol && (
+                <span
+                  style={{ flexShrink: 0, color: "#5B8CFF", fontSize: "10px" }}
+                >
+                  [{log.symbol}]
+                </span>
+              )}
+
+              {/* Message */}
+              <span style={{ flex: 1, wordBreak: "break-word" }}>
+                {log.message}
+              </span>
+
+              {/* Live indicator */}
+              {isLive && (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    width: "4px",
+                    height: "4px",
+                    borderRadius: "50%",
+                    background: "#10b981",
+                    boxShadow: "0 0 4px #10b981",
+                    marginTop: "5px",
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+
+        {/* Auto-scroll anchor */}
+        <div ref={logEndRef} />
+      </div>
+
+      {/* ── Status Bar ──────────────────────────────────────────────────── */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "3px 12px",
+          background: "#050505",
+          borderTop: "1px solid #0f172a",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span
+          style={{ fontSize: "9px", color: "#1e293b", fontFamily: "monospace" }}
+        >
+          {sseStatus === "connected" ? (
+            <>
+              <Wifi
+                size={8}
+                style={{
+                  display: "inline",
+                  marginRight: "4px",
+                  color: "#10b981",
+                }}
+              />
+              STREAM OPEN
+            </>
+          ) : (
+            <>
+              <WifiOff
+                size={8}
+                style={{ display: "inline", marginRight: "4px" }}
+              />
+              {sseStatus.toUpperCase()}
+            </>
+          )}
+        </span>
+        <span
+          style={{ fontSize: "9px", color: "#1e293b", fontFamily: "monospace" }}
+        >
+          AGENT:{agentId} — BUFFER:{logs.length}/{maxLogs}
+        </span>
+      </div>
+
+      <style jsx global>{`
+        @keyframes termSpin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+
