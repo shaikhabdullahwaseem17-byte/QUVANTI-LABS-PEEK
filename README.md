@@ -643,7 +643,7 @@ Not all code is in this repository. Pro features' code files, env. files, possib
 
 
 ## Feedback
-We could make mistakes, so can the AI.
+We could make mistakes, so can the AI. I as a sole architect cannot fix every minor bug. (*subtle call to team) 
 Love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
 We care for both expert and non-expert opinion. 
 
