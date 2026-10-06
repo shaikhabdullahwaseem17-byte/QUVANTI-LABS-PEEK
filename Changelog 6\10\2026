@@ -1,0 +1,107 @@
+4 bugs were found. Fixed
+
+Bug 1 — Calmar Ratio: Arithmetic annualisation → Geometric (CAGR) 
+
+// BEFORE — **arithmetic division**. Overstates compounding, wrong for multi-year periods.
+const annualizedReturn = totalReturn / yearsElapsed;
+
+// AFTER — **geometric** (CAGR). Correct formula: (finalEquity/initialEquity)^(1/T) − 1
+static calmarRatio(equityCurve, totalDays) {
+  const maxDD = this.maxDrawdown(equityCurve);
+  if (maxDD === 0) return Infinity;
+
+  const initialEquity = equityCurve[0].equity;
+  const finalEquity = equityCurve[equityCurve.length - 1].equity;
+  if (initialEquity <= 0) return 0;
+
+  const totalReturn = finalEquity / initialEquity;
+  const yearsElapsed = Math.max(totalDays / 365, 1 / 365);
+
+  const annualizedReturn = Math.pow(totalReturn, 1 / yearsElapsed) - 1; // CAGR
+
+  return annualizedReturn / maxDD;
+}
+
+
+Impact: On a 2-year +50% backtest, arithmetic gives 25%/yr — geometric gives 22.47%. At crypto-scale returns, this diverges materially.
+
+
+Bug 2 — maxDrawdownDuration: Terminal drawdown silently dropped
+// BEFORE — only recorded duration when a NEW peak was reached.
+// If equity curve ends still underwater, that final stretch was never counted.
+for (let i = 1; i < equityCurve.length; i++) {
+  if (equityCurve[i].equity >= peak) {
+    const dur = i - peakIdx;
+    maxDur = Math.max(maxDur, dur);
+    peak = equityCurve[i].equity;
+    peakIdx = i;
+  }
+}
+
+// AFTER — also checks terminal drawdown after loop exits
+static maxDrawdownDuration(equityCurve) {
+  if (equityCurve.length < 2) return 0;
+
+  let peak = equityCurve[0].equity;
+  let peakIdx = 0;
+  let maxDur = 0;
+
+  for (let i = 1; i < equityCurve.length; i++) {
+    if (equityCurve[i].equity >= peak) {
+      const dur = i - peakIdx;
+      maxDur = Math.max(maxDur, dur);
+      peak = equityCurve[i].equity;
+      peakIdx = i;
+    }
+  }
+
+  // FIX: if curve ends still below last peak, count that terminal drawdown too
+  const terminalDur = equityCurve.length - 1 - peakIdx;
+  maxDur = Math.max(maxDur, terminalDur);
+
+  return maxDur;
+}
+
+Impact: Any losing strategy that never recovered to its peak reported an artificially short drawdown duration — worst case was always underreported.
+
+
+Bug 3 — 252 vs 365 annualisation mismatch across 3 files. (realBacktest.js already used 365 correctly)
+// BEFORE — both used 252 (equities convention). Crypto trades 365 days/year.
+const BARS_PER_YEAR = 252;
+const dailyRf = annualRiskFree / 252;
+const sharpe = (meanExcess / sigma) * Math.sqrt(252);
+
+// AFTER — 365 everywhere, consistent across the platform
+const BARS_PER_YEAR = 365;
+const dailyRf = annualRiskFree / BARS_PER_YEAR;
+const sharpe = (meanExcess / sigma) * Math.sqrt(BARS_PER_YEAR);
+
+Impact: For the same strategy, Sharpe shown on the Quant Engine page was ~7% lower than the backtest engine (√365/√252 ≈ 1.203). Comparing outputs across pages gave inconsistent numbers
+
+
+Bug 4 — Population variance used instead of sample variance in Sharpe
+// BEFORE — biased population variance (divides by n)
+function stdDev(arr) {
+  const m = mean(arr);
+  const variance = arr.reduce((s, x) => s + (x - m) ** 2, 0) / arr.length;
+  return Math.sqrt(variance);
+}
+
+// BEFORE — same issue in store
+const variance = returns.reduce((s, r) => s + Math.pow(r - mu, 2), 0) / n;
+
+// AFTER — unbiased sample variance (n-1), consistent with realBacktest.js
+function stdDev(arr) {
+  const m = mean(arr);
+  const variance = arr.reduce((s, x) => s + (x - m) ** 2, 0) / (arr.length - 1 || 1);
+  return Math.sqrt(variance);
+}
+
+// AFTER — store
+const variance = returns.reduce((s, r) => s + Math.pow(r - mu, 2), 0) / (n - 1);
+const sigma = Math.sqrt(variance);
+return sigma > 0 ? parseFloat(((mu / sigma) * Math.sqrt(365)).toFixed(3)) : 0;
+
+Impact: Population variance systematically understates the true standard deviation from a sample, inflating the Sharpe ratio. Also made Bug 3 worse since the two fixes compound, annualisation factor and variance formula were wrong.
+
+---
