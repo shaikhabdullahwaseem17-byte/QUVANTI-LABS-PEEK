@@ -1,11 +1,12 @@
 4 bugs were found. Fixed
 
+
 Bug 1 — Calmar Ratio: Arithmetic annualisation → Geometric (CAGR) 
 
-// BEFORE — **arithmetic division**. Overstates compounding, wrong for multi-year periods.
+// BEFORE — arithmetic division. Overstates compounding, wrong for multi-year periods.
 const annualizedReturn = totalReturn / yearsElapsed;
 
-// AFTER — **geometric** (CAGR). Correct formula: (finalEquity/initialEquity)^(1/T) − 1
+// AFTER — geometric (CAGR). Correct formula: (finalEquity/initialEquity)^(1/T) − 1
 static calmarRatio(equityCurve, totalDays) {
   const maxDD = this.maxDrawdown(equityCurve);
   if (maxDD === 0) return Infinity;
@@ -23,7 +24,7 @@ static calmarRatio(equityCurve, totalDays) {
 }
 
 
-Impact: On a 2-year +50% backtest, arithmetic gives 25%/yr — geometric gives 22.47%. At crypto-scale returns, this diverges materially.
+Impact: On a 2-year +50% backtest, arithmetic gives 25%/yr, geometric gives 22.47%. At crypto-scale returns, this diverges materially.
 
 
 Bug 2 — maxDrawdownDuration: Terminal drawdown silently dropped
