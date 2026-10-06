@@ -29,25 +29,25 @@
 
 ## What Quvanti Is
 
-Quvanti is a web and mobile application that lets anyone describe a trading strategy in plain English and receive an immediate, statistically rigorous evaluation of it. You type something like "Buy Bitcoin when the 50-day MA crosses above the 200-day MA, sell when RSI exceeds 70, with a 2% stop loss" — and within 60 seconds the system parses that into executable logic, runs it against real historical price data, and returns a full quant analysis: Sharpe ratio, max drawdown, win rate, Monte Carlo confidence bands, walk-forward degradation score, volume profile key levels, and an overfit detection flag.
+Quvanti is currently a web platform that lets anyone describe a trading strategy in plain English and receive an immediate, statistically rigorous evaluation of it with auditable code (likely for which you're here). You type something like "Buy Bitcoin when the 50-day MA crosses above the 200-day MA, sell when RSI exceeds 70, with a 2% stop loss" — and within 60 seconds the system parses that into executable logic, runs it against real historical price data, and returns a full quant analysis: Sharpe ratio, max drawdown, win rate, Monte Carlo confidence bands, walk-forward degradation score, volume profile key levels, and an overfit detection flag.
 
-The target user is anyone who has trading ideas but no background in programming or quantitative finance — retail traders, finance students, analysts who want to stress-test an intuition before paper trading it.
+The target user is anyone who has trading ideas but no background in programming or quantitative finance willing to educate himself/herself— retail traders, finance students, analysts who want to stress-test an intuition before paper trading it.
 
 ---
 
 ## The Problem
 
-Retail traders and finance students routinely backtest strategies on platforms like TradingView's Pine Script or Python/pandas notebooks. The barrier is high: you need to write code, pay alot often, source and clean data, avoid look-ahead bias, understand statistical significance, and know what questions to even ask of the results.
+Retail traders and finance students routinely backtest strategies on platforms like TradingView's Pine Script or Python/pandas notebooks. The barrier is high and often exhausting: you need to write code, pay a lot often, source and clean data, avoid look-ahead bias, understand statistical significance, and know what questions to even ask of the results.
 
 More subtly, most tools that do give you a backtest give you *optimistic* results. They use the same data to both fit and evaluate the strategy — a form of data dredging that produces win rates and Sharpe ratios that evaporate in live trading. Professional quant shops have known this for decades and use walk-forward analysis, out-of-sample testing, and Monte Carlo methods to catch it. These techniques are rarely exposed to retail users in an accessible form.
 
-Quvanti's thesis is that the *methodology* is the product. Anyone can build a backtest button. Surfacing Hurst exponent, OOS degradation, Monte Carlo ruin probability, and overfit detection in a plain-language UI is the actual work. 
+Quvanti's thesis is that the *methodology* is the product. Anyone can build a backtest button. Surfacing Hurst exponent, OOS degradation, Monte Carlo ruin probability, and overfit detection in a plain-language UI is the actual work. This is what we are working to achieve flawlessly.
 
 ---
 
 ## What It Does
 
-1. **Natural language → strategy**: User writes a strategy in plain English. A Gemini 2.5 Flash call structured-extracts it into a parsed strategy object (entry rules, exit rules, risk management, position sizing). The extraction includes an auto-retry on JSON parse failure and a deterministic fallback if the AI cannot parse the input.
+1. **Natural language → strategy**: User writes a strategy in plain English. A Gemini Flash call structured-extracts it into a parsed strategy object (entry rules, exit rules, risk management, position sizing). The extraction includes an auto-retry on JSON parse failure and a deterministic fallback if the AI cannot parse the input.
 
 2. **Real backtesting**: Point-in-time OHLCV data is fetched from CoinGecko (crypto) or yFinance (equities). The backtest engine simulates trade-by-trade execution with configurable slippage and commission. Output includes equity curve, per-trade log, Sharpe, Sortino, Calmar, and max drawdown.
 
@@ -593,6 +593,7 @@ The full schema is in the database. Key tables and their purpose:
 | GET | `/api/subscription/status` | User tier + license status |
 | POST | `/api/subscription/activate` | Activate license key |
 
+[Feature(s) may go offline. Most common reason could be maintanance or further-thoughts]
 ---
 
 ## AI Assistance
@@ -608,10 +609,10 @@ This project was built with significant AI tool assistance (primarily Claude and
 - Debugging and fixing edge cases in backtest logic, Monte Carlo paths, JSON extraction
 - Database schema design
 - API contract design
-- Integration decisions (Paddle for payments, Alpaca for brokerage, CoinGecko for data)
+- Integration decisions (Google JSON bot for subscription verification, Paddle for payments, Alpaca for brokerage, CoinGecko for data)
 - Testing and verification of quant outputs
 
-AI tools were used to accelerate implementation velocity, not to make product or methodology decisions. All generated code was reviewed, overthought, debugged, and modified before being used in production.
+AI tools were used to accelerate implementation velocity, not to make product or methodology decisions. All generated code was overthought, debugged, and modified before being pushed to production.
 
 ---
 
@@ -644,13 +645,14 @@ Not all code is in this repository. Pro features' code files, env. files, possib
 
 ## Feedback
 We could make mistakes, so can the AI. I as a sole architect cannot fix every minor bug. (*subtle call to team) 
-Love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
+People use it with trust. I'm trying my best and love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
 We care for both expert and non-expert opinion. 
 
-If you cant pay for the Pro subscription, don't use it as an excuse for not venturing further, please contact us.
+If you can't pay for the Pro subscription, don't use it as an excuse for not venturing further, please contact us at the afore mentioned email.
 
 
 [substantial improvements will be uploaded in this repository as dated logs] 
+
 
 Last Updated
 10/6/2026
