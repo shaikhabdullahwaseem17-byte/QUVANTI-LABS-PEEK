@@ -1,6 +1,6 @@
 # Quvanti Labs
 
-> Autonomous Quant Telemtry
+> Autonomous Quant Telemetry 
 
 **Live app:** [quvantilabs.com](https://quvantilabs.com)
 
@@ -648,7 +648,7 @@ We could make mistakes, so can the AI. I as a sole architect cannot fix every mi
 People use it with trust. I'm trying my best and love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
 We care for both expert and non-expert opinion. 
 
-If you can't pay for the Pro subscription, don't use it as an excuse for not venturing further, please contact us at the afore mentioned email.
+If you can't pay for the Pro subscription, don't use it as an excuse for not venturing further, please contact us at the aforementioned email.
 
 
 [substantial improvements will be uploaded in this repository as dated logs] 
