@@ -624,7 +624,8 @@ AI tools were used to accelerate implementation velocity, not to make product or
 - **Walk-forward window size**: Fixed windows are used. Adaptive walk-forward windows would improve out-of-sample validity.
 - **Mobile alerts**: The mobile alerts tab uses static mock data and is not yet wired to the backend alerts table.
 - **No email notifications**: Alerts are in-app only; no email or push notification delivery is implemented yet.
-- **Not all code is in this repository. Pro features' code files, env. files, possibly sensitive files and some UI and UX files are excluded. 
+- **Exclusivity maintenance**:
+Not all code is in this repository. Pro features' code files, env. files, possibly sensitive files and some UI and UX files are excluded. 
 
 
 ## Roadmap (Subject to Change)
@@ -646,9 +647,10 @@ We could make mistakes, so can the AI.
 Love and sincerity went into this. If something seems like an error, please report it at helloquvanti@gmail.com. 
 We care for both expert and non-expert opinion. 
 
-If you cant pay for the Pro subscription, don't use it as an excuse to not work better, please contact us.
+If you cant pay for the Pro subscription, don't use it as an excuse for not venturing further, please contact us.
 
 
+[substantial improvements will be uploaded in this repository as dated logs] 
 
-###Last Updated
-9/24/2026
+Last Updated
+10/6/2026
