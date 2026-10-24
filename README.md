@@ -258,6 +258,10 @@ Each technique below is implemented in the codebase (location noted) and runs on
 
 **Where:** `apps/web/src/app/api/audit/log/route.js`; `lineage_hash` and `prev_hash` columns in `audit_logs` table.
 
+[Note: The Math.random() calls in this project are not doing anything “real” or security-critical. They’re mostly here for visual flair — animated node motion, fake market drift, HUD flicker, and decorative canvas effects that make the UI feel alive. In other words: they’re for vibes, not strategy logic.
+
+So yes, if you’re wondering whether they affect actual trading behavior or backend decisions: basically no. They’re cosmetic, not core logic. We kept them as visual-only effects, because a dashboard that looks like a crypto war room is part of the brand experience. If you want a cleaner, more deterministic setup later, we can swap those out for seeded or fixed values without affecting the actual app logic.]
+
 ---
 
 ## Project Structure
@@ -496,7 +500,7 @@ The Expo companion app (`apps/mobile`) mirrors core functionality of the web app
 
 Authentication in the mobile app opens a WebView to the web app's sign-in/sign-up pages, then bridges the session token back to the native app.
 
-(Mobile Not Launched Yet - 9//24/2026)
+(Mobile app Not Launched Yet - 9//24/2026)
 ---
 
 ## Database Schema
