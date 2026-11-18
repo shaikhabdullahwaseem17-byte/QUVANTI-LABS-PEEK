@@ -1,3 +1,4 @@
+congratulations! You discovered random wisdom:
 
 You aren't playing life on third person. You know in games there is no second person [perspective] ? That's your peer!
 
@@ -5,5 +6,4 @@ Creativity is always exploring something new and daring to do what nobody did. I
 
 I dont like spiders, they're a bit scary, but I do like the diversity of spiders. The thing that there are thousands of them and whenever a person sees them they go "oh a spider". Not an "American spider", not an "African spider" and not a "Pakistani spider", but just a spider, despite them being different. That's what happens when we as friends, relatives or anybody remain together we are called "that group" whatever happens we all are in it, we carry each others dignity.
 
-
- lol
+ 
